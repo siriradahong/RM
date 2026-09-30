@@ -1,11 +1,114 @@
-# เชื่อมโยง — Khon Kaen Connect
+# ระบบบูรณาการข้อมูลและสรุปผลการปฏิบัติงาน
 
-High-fidelity interactive web prototype for the Bureau of Public Health and Environment, Khon Kaen Municipality. Thai UI, responsive layout, 12 connected screen types, and September 2569 demonstration data.
+เว็บสำหรับสำนักสาธารณสุขและสิ่งแวดล้อม เทศบาลนครขอนแก่น ใช้ **React + Vite, Node.js + Express API และ SQLite** เก็บข้อมูลถาวรในเครื่อง รองรับคอมพิวเตอร์ แท็บเล็ต และมือถือ
 
-Open `index.html` directly in a browser, or run `python3 -m http.server 8000` in this folder and visit `http://localhost:8000`.
+ระบบหลักเชื่อมฐานข้อมูลจริง ไม่มีบัญชี demo ไม่มีการสลับบทบาทเอง และไม่มีจำนวนงานจำลอง เริ่มด้วยหน่วยงานและหมวดข้อมูลพื้นฐานเท่านั้น รายการงาน ข่าว และไฟล์เริ่มว่าง ต้นแบบเดิมอยู่ใน `archive/` และไม่ถูก build หรือเปิดให้บริการ
 
-The initial view is the bureau dashboard. Click the account at the top right to select one or several demonstration roles. Sign out to see the login screen; demo credentials are `demo` / `demo123`.
+## เริ่มใช้งาน
 
-Includes dashboards, searchable library, import wizard, evidence review, internal news feed, news drafting and publication, account management, master data, simulated LINE settings, and read-only audit history. Edits are stored in browser localStorage. Real authentication, file storage, AI extraction, and LINE delivery are not connected. Selected local files are validated and represented by metadata; extraction uses placeholder fields requiring manual review. Photos are illustrative stock images. Google Fonts and images require an internet connection.
+ใช้ Node.js **24.13 ขึ้นไปในสาย 24 LTS** และ npm โดยใช้ `node:sqlite` ของ Node โดยตรง (Node 24.13 ยังแสดง ExperimentalWarning สำหรับโมดูลนี้)
 
-The six initial library records illustrate selected activities within aggregate monthly totals; the library explicitly labels these as sample records rather than claiming to contain all 240 activities. No KPI targets, plans, GPS, Facebook, or generated Word/PDF reports are included.
+```sh
+npm ci
+cp .env.example .env
+npm run admin:create
+npm run build
+npm start
+```
+
+เปิด **http://localhost:3001**
+
+`admin:create` ถามชื่อผู้ใช้และชื่อผู้ดูแล สร้างรหัสผ่านสุ่ม 24 ตัวอักษร และเขียนลง `.first-admin.txt` ซึ่งเข้าถึงได้เฉพาะเจ้าของไฟล์และไม่ขึ้น Git ข้อมูลเข้าสู่ระบบไม่ถูกพิมพ์ลง log หากใช้ provisioning กำหนด `ADMIN_USERNAME`, `ADMIN_NAME`, `ADMIN_PASSWORD` ผ่าน environment ได้ ไม่มีรหัสผ่านตายตัวในโค้ด
+
+เข้าสู่ระบบด้วยแอดมิน → **ดูแลระบบ → ผู้ใช้และสิทธิ์ → เพิ่มบัญชี** เพื่อสร้างบัญชีจริง เปลี่ยนรหัสผ่านของตนเองจากบัญชีมุมขวาบน หากลืมรหัสผ่านให้แอดมินตั้งใหม่ ไม่มีการสมัครบัญชีสาธารณะ
+
+พัฒนา: `npm run dev` เปิด Vite ที่ http://localhost:5173 และ Express ที่ http://localhost:3001 โดย Vite proxy `/api` ไป Express
+
+## มือถือใน Wi-Fi เดียวกัน
+
+1. เปิดระบบบนคอมพิวเตอร์ด้วย `npm start` หลัง build
+2. หา IPv4 ของคอมพิวเตอร์ เช่น `192.168.1.20`
+3. เพิ่ม `http://192.168.1.20:3001` ใน `APP_ORIGIN` ของ `.env` คั่นด้วยจุลภาค แล้วเริ่มระบบใหม่
+4. เปิด `http://192.168.1.20:3001` บนมือถือที่อยู่ Wi-Fi เดียวกัน ไฟร์วอลล์ต้องอนุญาตพอร์ต 3001
+
+```dotenv
+HOST=0.0.0.0
+PORT=3001
+APP_ORIGIN=http://localhost:3001,http://localhost:5173,http://192.168.1.20:3001
+```
+
+ฐานข้อมูลอยู่บนเครื่องที่เปิดเซิร์ฟเวอร์ เมื่อเครื่องปิด มือถือจะเข้าไม่ได้ การเปิดผ่านอินเทอร์เน็ตต้องมีเซิร์ฟเวอร์และ HTTPS ดู [คู่มือติดตั้ง](docs/DEPLOYMENT.md) GitHub Pages ไม่สามารถรัน backend ของระบบนี้ได้
+
+## 5 บทบาท
+
+| บทบาท                   | สิทธิ์เฉพาะ                                           |
+| ----------------------- | ----------------------------------------------------- |
+| เจ้าหน้าที่ (`staff`)   | นำเข้าไฟล์ สร้างงานในสังกัด แก้ไขงานของตนเอง          |
+| หัวหน้าฝ่าย (`head`)    | สร้างและแก้ไขงานในหน่วยงานที่ได้รับมอบขอบเขต          |
+| ผู้บริหาร (`executive`) | อ่านข้อมูล ดูภาพรวมและหลักฐานย้อนหลัง                 |
+| ประชาสัมพันธ์ (`pr`)    | เลือกต้นทาง จัดทำร่าง ยืนยันข่าว และส่ง LINE          |
+| ผู้ดูแลระบบ (`admin`)   | บัญชี บทบาท สังกัด ขอบเขตหัวหน้า หมวดข้อมูล และ audit |
+
+หนึ่งบัญชีมีหลายบทบาทได้ ทุกบัญชีที่เปิดใช้งานอ่านข้อมูลภายในร่วมกันได้ ตรวจสิทธิ์ที่ API ไม่ใช่แค่ซ่อนเมนู แอดมินไม่ได้สิทธิ์แก้รายงานทั้งหมดโดยอัตโนมัติ เมื่อแก้ไขสิทธิ์/รหัสผ่าน/สถานะบัญชี session ของบัญชีนั้นจะถูกยกเลิก
+
+## ฟังก์ชันที่ทำงานจริง
+
+- เข้าสู่ระบบด้วย password hash (scrypt), session ในฐานข้อมูล, HttpOnly/SameSite cookie, CSRF และตรวจ Origin
+- Rate limit และพักบัญชีเมื่อกรอกรหัสผ่านผิดหลายครั้ง
+- คลังงานค้นหา กรองหน่วยงาน วันที่ ประเภท สถานะ แหล่งที่มา และแบ่งหน้า
+- อัปโหลดและดาวน์โหลดไฟล์จริง: PDF, XLS/XLSX, JPG/PNG/WebP ไม่เกิน 20 MB ต่อไฟล์ ตรวจชนิดจากเนื้อไฟล์ เข้าถึงได้เฉพาะผู้เข้าสู่ระบบ
+- แยกฝากเอกสารกับหลักฐานงาน หลายไฟล์/ข้อความเชื่อมหนึ่งกิจกรรมได้
+- แก้ไขตามสิทธิ์ พร้อม version ป้องกันการเขียนทับข้อมูลเก่า
+- แดชบอร์ดคำนวณเฉพาะงาน `ready` แยกผลตามชื่อและหน่วยนับ ไม่รวมคน ตัน และครั้งบริการเข้าด้วยกัน
+- ข่าวแยกจากรายงานต้นทาง เลือกรูปและรูปปก บันทึกร่าง Preview และยืนยันเผยแพร่บนฟีดภายใน
+- บัญชี โครงสร้างหน่วยงาน หมวดข้อมูล และ audit พร้อมค่าเดิม/ค่าใหม่
+
+## LINE และ AI
+
+กำหนด Messaging API channel ของหน่วยงานใน `.env`: `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_REPORT_GROUP_ID`, `LINE_NEWS_GROUP_ID`
+
+- Webhook: `POST https://<โดเมน>/api/line/webhook` ตรวจ HMAC จาก raw body รับเฉพาะกลุ่มที่กำหนด และกัน event ซ้ำ
+- localhost ยังรับ webhook จาก LINE ไม่ได้ ต้องมี HTTPS ที่ LINE เรียกถึง
+- ผูก LINE User ID กับบัญชีผู้รายงาน หากยังไม่ผูก จะเก็บข้อความรอและยังนำไปสร้างงานไม่ได้
+- ผู้มีสิทธิ์เลือกข้อความรวมเป็นหนึ่งงานได้ ไฟล์/รูปมีปุ่มดาวน์โหลดต้นฉบับจาก LINE แล้วเก็บจริงลงดิสก์ ควรดาวน์โหลดโดยเร็วตามข้อจำกัดอายุไฟล์ของ LINE
+- PR ต้องเผยแพร่บนฟีดก่อน แล้วกดส่ง LINE แยกอีกครั้ง ส่งข้อความข่าวจริงด้วย Push API และ retry key เดิมเพื่อกันคำขอซ้ำ แสดง “LINE รับคำขอแล้ว” ไม่ใช่การยืนยันว่าผู้รับอ่านแล้ว
+- **ยังไม่ได้เชื่อมบริการ AI/OCR** ใช้ไฟล์จริงและแบบฟอร์มตรวจกรอกเอง ไม่มีผลสกัดปลอม ไม่มี AI เขียนข่าวหรือรายงานแทน
+
+อ้างอิง [LINE signature](https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/) และ [LINE retry keys](https://developers.line.biz/en/docs/messaging-api/retrying-api-request/)
+
+## ข้อมูลและการสำรอง
+
+- `data/rm.sqlite`: ผู้ใช้ session หน่วยงาน งาน metadata ไฟล์ ข่าว audit
+- `data/uploads/`: ไฟล์จริง ชื่อภายในสุ่ม ไม่เปิดเป็น public directory
+- SQLite ใช้ WAL, foreign keys และ migrations มีเวอร์ชัน
+- `.env`, `.first-admin.txt`, `data/`, `backups/` ไม่ขึ้น GitHub
+
+```sh
+npm run backup
+```
+
+สร้าง `backups/<timestamp>/rm.sqlite` และ `uploads` ด้วย SQLite backup API ควรงดการเขียนข้อมูลระหว่างสำรองให้ไฟล์และฐานข้อมูลตรงกัน กู้คืนโดยหยุดเซิร์ฟเวอร์ เก็บชุดปัจจุบันไว้ แล้วนำฐานข้อมูลและ uploads จากชุดเดียวกันกลับไป `DATA_DIR` ก่อนเริ่มใหม่
+
+## การทดสอบ
+
+```sh
+npm test
+npm run build
+npm run test:browser
+```
+
+Tests ใช้ฐานข้อมูลชั่วคราวแยกจากข้อมูลจริง ตรวจสิทธิ์ session CSRF ไฟล์ ยอดสรุป ข่าว audit และ LINE HMAC Browser tests ใช้ Chrome บน macOS หรือกำหนด `CHROME_PATH`; ระบบอื่นติดตั้งด้วย `npx playwright install chromium` ทดสอบหน้าจอ 1440, 390 และ 768 px ภาพอยู่ใน `test-results/` และไม่ขึ้น GitHub
+
+## โครงสร้าง
+
+| โฟลเดอร์   | เนื้อหา                                        |
+| ---------- | ---------------------------------------------- |
+| `src/`     | React UI, API client, responsive CSS           |
+| `server/`  | Express routes, validation, auth, SQLite, LINE |
+| `scripts/` | Dev servers, สร้างแอดมิน, สำรองข้อมูล          |
+| `tests/`   | API integration และ browser end-to-end         |
+| `public/`  | ตราเทศบาลจากเว็บอ้างอิง                        |
+| `docs/`    | ติดตั้งเซิร์ฟเวอร์และ API reference            |
+| `archive/` | ต้นแบบเดิมที่ไม่ใช้ในระบบปัจจุบัน              |
+
+ธีมอ้างอิง [เว็บเทศบาลนครขอนแก่น](https://kkmuni.go.th/) โทนน้ำเงิน `#013a63`, เข้ม `#001f36`, ฟ้า `#00adff` และฟอนต์ Noto Sans Thai ที่เก็บไว้ในโปรเจกต์
