@@ -741,6 +741,18 @@ describe(
       assert.ok(r.json.total >= 5);
       assert.ok(!JSON.stringify(r.json).includes("password_hash"));
       assert.ok(!JSON.stringify(r.json).includes(password));
+      const filtered = await request("/admin/audits?entity=user", {
+        as: "admin",
+      });
+      assert.equal(filtered.status, 200);
+      assert.equal(
+        filtered.json.total,
+        app.locals.db
+          .prepare("SELECT COUNT(*) n FROM audits WHERE entity='user'")
+          .get().n,
+      );
+      assert.ok(filtered.json.total > 0);
+      assert.ok(filtered.json.items.every((entry) => entry.entity === "user"));
       assert.equal(
         (
           await request("/admin/audits", {
@@ -751,6 +763,46 @@ describe(
         ).status,
         404,
       );
+    });
+    it("restricts LINE settings to admins and exposes group IDs without credentials", async () => {
+      const values = {
+        LINE_CHANNEL_SECRET: "private-line-secret",
+        LINE_CHANNEL_ACCESS_TOKEN: "private-line-token",
+        LINE_REPORT_GROUP_ID: "report-group",
+        LINE_NEWS_GROUP_ID: "news-group",
+      };
+      const previous = Object.fromEntries(
+        Object.keys(values).map((key) => [key, process.env[key]]),
+      );
+      try {
+        Object.assign(process.env, values);
+        for (const as of ["staff", "head", "pr", "executive"]) {
+          assert.equal((await request("/admin/line", { as })).status, 403);
+          assert.equal((await request("/admin/audits", { as })).status, 403);
+        }
+        const r = await request("/admin/line", { as: "admin" });
+        assert.equal(r.status, 200);
+        assert.equal(r.json.reportGroupId, "report-group");
+        assert.equal(r.json.newsGroupId, "news-group");
+        assert.equal(r.json.receiveConfigured, true);
+        assert.equal(r.json.sendConfigured, true);
+        assert.equal(r.json.lastReceived, null);
+        assert.equal(r.json.lastSent, null);
+        assert.ok(!JSON.stringify(r.json).includes(values.LINE_CHANNEL_SECRET));
+        assert.ok(
+          !JSON.stringify(r.json).includes(values.LINE_CHANNEL_ACCESS_TOKEN),
+        );
+        delete process.env.LINE_CHANNEL_SECRET;
+        delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+        const partial = await request("/admin/line", { as: "admin" });
+        assert.equal(partial.json.receiveConfigured, false);
+        assert.equal(partial.json.sendConfigured, false);
+      } finally {
+        for (const [key, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
     });
     it("checks LINE webhook HMAC, allowed group and event deduplication", async () => {
       process.env.LINE_CHANNEL_SECRET = "test-secret";

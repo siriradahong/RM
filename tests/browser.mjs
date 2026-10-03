@@ -475,6 +475,130 @@ try {
     assert.equal(file.work_id, assignedWork);
   }
   await staffContext.close();
+  // An admin-only account can manage settings and read audits, not author reports/news.
+  app.locals.db
+    .prepare(
+      "INSERT INTO users(username,name,password_hash,roles) VALUES(?,?,?,?)",
+    )
+    .run(
+      "onlyadmin",
+      "แอดมินตรวจสิทธิ์",
+      await hashPassword(password),
+      '["admin"]',
+    );
+  app.locals.db
+    .prepare(
+      "INSERT INTO audits(actor_name,action,entity,entity_id,before_json,after_json) VALUES(?,?,?,?,?,?)",
+    )
+    .run(
+      "แอดมินตรวจสิทธิ์",
+      "ทดสอบการเปลี่ยนสถานะ",
+      "user",
+      1,
+      JSON.stringify({ name: "ชื่อเดิม", active: true }),
+      JSON.stringify({ name: "ชื่อเดิม", active: false }),
+    );
+  const adminContext = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const admin = await adminContext.newPage();
+  admin.on("pageerror", (e) => errors.push(e.message));
+  await admin.goto(origin);
+  await admin.getByLabel("ชื่อผู้ใช้", { exact: true }).fill("onlyadmin");
+  await admin.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await admin.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await admin.getByRole("heading", { name: "ดูแลระบบ", exact: true }).waitFor();
+  assert.equal(await admin.getByRole("tab").count(), 3);
+  assert.equal(
+    await admin
+      .getByRole("button", { name: "นำเข้าข้อมูล", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await admin
+      .getByRole("button", { name: "จัดการข่าว", exact: true })
+      .count(),
+    0,
+  );
+  await admin
+    .getByRole("tab", { name: "การเชื่อมต่อ LINE", exact: true })
+    .click();
+  await admin
+    .getByRole("heading", { name: "กลุ่มรับรายงาน", exact: true })
+    .waitFor();
+  await admin.reload();
+  await admin
+    .getByRole("heading", { name: "กลุ่มรับรายงาน", exact: true })
+    .waitFor();
+  assert.equal(
+    await admin
+      .getByRole("tab", { name: "การเชื่อมต่อ LINE", exact: true })
+      .getAttribute("aria-selected"),
+    "true",
+  );
+  await admin.screenshot({
+    path: "test-results/admin-line-desktop.png",
+    fullPage: true,
+  });
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await admin.waitForFunction(
+    () => document.querySelector(".sidebar").getBoundingClientRect().right <= 1,
+  );
+  assert.equal(
+    await admin.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await admin.screenshot({
+    path: "test-results/admin-line-mobile.png",
+    fullPage: true,
+  });
+  await admin.goto(origin + "/#audit");
+  await admin.getByLabel("ประเภทรายการ", { exact: true }).selectOption("user");
+  await admin
+    .getByRole("cell", { name: "ทดสอบการเปลี่ยนสถานะ", exact: true })
+    .waitFor();
+  await admin
+    .getByRole("row")
+    .filter({ hasText: "ทดสอบการเปลี่ยนสถานะ" })
+    .getByRole("button", { name: "ดูรายละเอียด" })
+    .click();
+  const diff = admin.getByRole("dialog");
+  await diff.getByRole("columnheader", { name: "ค่าเดิม" }).waitFor();
+  assert.equal(await diff.locator("tbody tr").count(), 1);
+  await diff
+    .locator('td[data-label="ค่าเดิม"]')
+    .filter({ hasText: /^เปิดใช้งาน$/ })
+    .waitFor();
+  await diff
+    .locator('td[data-label="ค่าใหม่"]')
+    .filter({ hasText: /^ปิดใช้งาน$/ })
+    .waitFor();
+  assert.equal(
+    await admin.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await admin.screenshot({
+    path: "test-results/admin-audit-mobile.png",
+    fullPage: true,
+  });
+  await admin.setViewportSize({ width: 1440, height: 1000 });
+  await admin.screenshot({
+    path: "test-results/admin-audit-desktop.png",
+    fullPage: true,
+  });
+  for (const route of ["import", "inbox", "news"]) {
+    await admin.goto(origin + "/#" + route);
+    await admin
+      .getByRole("heading", { name: "ไม่มีสิทธิ์เข้าถึงหน้านี้", exact: true })
+      .waitFor();
+  }
+  await adminContext.close();
   assert.deepEqual(errors, [], "Browser runtime errors");
   console.log(
     "PASS: desktop login, account creation, real upload, activity save, dashboard, news publication, persistent session, mobile/tablet navigation and layout.",

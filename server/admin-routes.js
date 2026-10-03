@@ -121,6 +121,10 @@ export function registerAdminRoutes(app, db) {
       conditions.push("(actor_name LIKE ? OR action LIKE ? OR entity LIKE ?)");
       params.push(...Array(3).fill(`%${String(req.query.q).slice(0, 200)}%`));
     }
+    if (req.query.entity) {
+      conditions.push("entity=?");
+      params.push(String(req.query.entity));
+    }
     if (req.query.from) {
       conditions.push("created_at>=?");
       params.push(req.query.from);
@@ -150,6 +154,8 @@ export function registerAdminRoutes(app, db) {
   });
   app.get("/api/admin/line", (req, res) =>
     res.json({
+      reportGroupId: process.env.LINE_REPORT_GROUP_ID || null,
+      newsGroupId: process.env.LINE_NEWS_GROUP_ID || null,
       receiveConfigured: Boolean(
         process.env.LINE_CHANNEL_SECRET && process.env.LINE_REPORT_GROUP_ID,
       ),

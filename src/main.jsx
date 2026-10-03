@@ -435,7 +435,7 @@ function App() {
     ...(isAdmin
       ? [
           ["admin", "ดูแลระบบ", Settings],
-          ["audit", "ประวัติการแก้ไข", History],
+          ["audit", "ประวัติการแก้ไขข้อมูล", History],
         ]
       : []),
   ];
@@ -461,7 +461,7 @@ function App() {
   else if (current === "feed") page = <Feed />;
   else if (current === "news" && isPr)
     page = view ? <NewsEditor id={view} /> : <NewsManager />;
-  else if (current === "admin" && isAdmin) page = <Admin />;
+  else if (current === "admin" && isAdmin) page = <Admin tab={view} />;
   else if (current === "audit" && isAdmin) page = <Audit />;
   else
     page = (
@@ -2826,8 +2826,11 @@ function NewsEditor({ id }) {
   );
 }
 
-function Admin() {
-  const [tab, setTab] = useState("users");
+function Admin({ tab: requestedTab }) {
+  const { navigate } = useApp();
+  const tab = ["users", "master", "line"].includes(requestedTab)
+    ? requestedTab
+    : "users";
   return (
     <>
       <Header
@@ -2836,12 +2839,12 @@ function Admin() {
       />
       <Tabs
         items={[
-          ["users", "ผู้ใช้และสิทธิ์"],
+          ["users", "ผู้ใช้งานและสิทธิ์"],
           ["master", "หน่วยงานและหมวดข้อมูล"],
           ["line", "การเชื่อมต่อ LINE"],
         ]}
         value={tab}
-        onChange={setTab}
+        onChange={(value) => navigate("admin/" + value)}
       />
       {tab === "users" ? (
         <UsersAdmin />
@@ -2863,7 +2866,7 @@ function UsersAdmin() {
         <div className="panel-heading">
           <div>
             <h2>บัญชีผู้ใช้งาน</h2>
-            <p>หนึ่งบัญชีมีได้หลายบทบาท</p>
+            <p>กำหนดบทบาท สถานะบัญชี และฝ่ายกับงานประจำของพนักงาน</p>
           </div>
           <Button
             primary
@@ -2916,6 +2919,18 @@ function UsersAdmin() {
                             {u.work_name || "รอกำหนดงานโดยผู้ดูแลระบบ"}
                           </small>
                         )}
+                        {u.roles.includes("head") && (
+                          <small>
+                            ขอบเขตหัวหน้า:{" "}
+                            {u.scopes
+                              .map(
+                                (id) =>
+                                  meta.units.find((unit) => unit.id === id)
+                                    ?.name || `หน่วยงาน #${id}`,
+                              )
+                              .join(" / ") || "ยังไม่กำหนด"}
+                          </small>
+                        )}
                       </td>
                       <td>
                         <div className="role-list">
@@ -2951,8 +2966,9 @@ function UsersAdmin() {
         </Resource>
       </section>
       <Notice>
-        บทบาทผู้ดูแลระบบไม่ให้สิทธิ์แก้รายงานทั้งหมด
-        การแก้ไขงานขึ้นกับเจ้าของรายการและหน่วยงานที่หัวหน้ารับผิดชอบ
+        พนักงานแต่ละคนมี 1 ฝ่ายและ 1 งานตามที่แอดมินกำหนด
+        การแก้รายงานใช้สิทธิ์พนักงานเจ้าของรายการหรือหัวหน้าตามขอบเขตที่รับผิดชอบ
+        ส่วนการจัดทำและเผยแพร่ข่าวใช้สิทธิ์ประชาสัมพันธ์
       </Notice>
       {editing && (
         <UserForm
@@ -3225,7 +3241,7 @@ function MasterAdmin() {
         <section className="panel">
           <div className="panel-heading">
             <div>
-              <h2>ส่วน ฝ่าย/กลุ่มงาน และงาน</h2>
+              <h2>ส่วน → ฝ่าย/กลุ่มงาน → งาน</h2>
               <p>เลือกฝ่ายเพื่อดูงานในสังกัด</p>
             </div>
             <Button icon={Plus} onClick={() => edit("units")}>
@@ -3431,16 +3447,38 @@ function MasterAdmin() {
   );
 }
 function LineAdmin() {
+  const { navigate } = useApp();
   const r = useResource("/admin/line");
   return (
     <Resource resource={r}>
       {(d) => (
         <>
+          <div className="panel-heading">
+            <div>
+              <h2>ช่องทางรับรายงานและส่งข่าว</h2>
+              <p>ตรวจค่าที่ตั้งไว้และประวัติรับ–ส่งจริงล่าสุด</p>
+            </div>
+            <Button icon={RefreshCw} onClick={r.reload}>
+              โหลดสถานะล่าสุด
+            </Button>
+          </div>
           <div className="master-grid">
             {[
-              [d.receiveConfigured, "ช่องทางรับรายงาน", d.lastReceived],
-              [d.sendConfigured, "กลุ่มส่งข่าวที่อนุมัติแล้ว", d.lastSent],
-            ].map(([ready, title, last]) => (
+              [
+                d.receiveConfigured,
+                "กลุ่มรับรายงาน",
+                d.reportGroupId,
+                d.lastReceived,
+                "รับรายงานล่าสุด",
+              ],
+              [
+                d.sendConfigured,
+                "กลุ่มส่งข่าว",
+                d.newsGroupId,
+                d.lastSent,
+                "ส่งข่าวสำเร็จล่าสุด",
+              ],
+            ].map(([ready, title, groupId, last, lastLabel]) => (
               <section className="panel form-panel" key={title}>
                 <div className="connection-icon">
                   <Link size={27} />
@@ -3449,40 +3487,145 @@ function LineAdmin() {
                 <Badge status={ready ? "ready" : "pending"}>
                   {ready ? "ตั้งค่าช่องทางแล้ว" : "ยังไม่ได้ตั้งค่า"}
                 </Badge>
-                <p className="muted">
-                  ข้อมูลล่าสุด: {last ? fmt(last, true) : "ยังไม่มีข้อมูล"}
-                </p>
+                <dl className="line-details">
+                  <dt>Group ID</dt>
+                  <dd>
+                    {groupId ? <code>{groupId}</code> : "ยังไม่ได้กำหนดกลุ่ม"}
+                  </dd>
+                  <dt>{lastLabel}</dt>
+                  <dd>
+                    {last ? fmt(last, true) : "ยังไม่มีประวัติรับ–ส่งจริง"}
+                  </dd>
+                </dl>
               </section>
             ))}
           </div>
           <Notice>
-            ตั้งค่า Channel secret, Access token และ Group ID ในไฟล์ .env
-            บนเซิร์ฟเวอร์ แล้วเริ่มระบบใหม่ โดย webhook ต้องเป็น HTTPS ที่ LINE
-            เข้าถึงได้: <code>{d.webhookPath}</code>
+            หน้านี้แสดงสถานะแบบอ่านอย่างเดียว
+            หากต้องการเปลี่ยนกลุ่มหรือข้อมูลเชื่อมต่อ ให้ตั้งค่า Channel secret,
+            Access token และ Group ID ในไฟล์ .env บนเซิร์ฟเวอร์
+            แล้วเริ่มระบบใหม่ โดย webhook ต้องเป็น HTTPS ที่ LINE เข้าถึงได้:{" "}
+            <code>{d.webhookPath}</code>
             <br />
             สถานะ “ตั้งค่าช่องทางแล้ว” หมายถึงมีค่าตั้งค่า ยังไม่ใช่การยืนยันว่า
             LINE ติดต่อสำเร็จ
           </Notice>
-          {d.unmappedUsers.length > 0 && (
-            <section className="panel form-panel">
-              <h2>ผู้รายงานที่ยังไม่ได้ผูกบัญชี</h2>
-              <p>คัดลอก ID ไปกำหนดในบัญชีผู้ใช้งานที่ตรงกับผู้รายงาน</p>
-              {d.unmappedUsers.map((u) => (
-                <p key={u.line_user_id}>
-                  <code>{u.line_user_id}</code>
-                </p>
-              ))}
-            </section>
-          )}
+          <section className="panel form-panel">
+            <h2>ผู้รายงานที่ยังไม่ได้ผูกบัญชี</h2>
+            <p>
+              {d.unmappedUsers.length
+                ? "คัดลอก LINE User ID ไปกำหนดในบัญชีผู้ใช้งานที่ตรงกับผู้รายงาน"
+                : "ไม่มีผู้รายงานที่รอผูกบัญชี"}
+            </p>
+            {d.unmappedUsers.map((u) => (
+              <p className="line-user-id" key={u.line_user_id}>
+                <code>{u.line_user_id}</code>
+              </p>
+            ))}
+            <Button icon={Users} onClick={() => navigate("admin/users")}>
+              ไปจัดการผู้ใช้งานและสิทธิ์
+            </Button>
+          </section>
         </>
       )}
     </Resource>
   );
 }
+const auditEntities = {
+  activity: "รายการงาน",
+  news: "ข่าว",
+  user: "บัญชีผู้ใช้งาน",
+  file: "ไฟล์",
+  inbox: "รายงานจาก LINE",
+  units: "หน่วยงาน",
+  works: "งานตามฝ่าย",
+  categories: "ประเภทงาน",
+};
+function AuditChanges({ entry }) {
+  const before = entry.before_json ? JSON.parse(entry.before_json) : {};
+  const after = entry.after_json ? JSON.parse(entry.after_json) : {};
+  const fields = [
+    ...new Set([...Object.keys(before), ...Object.keys(after)]),
+  ].filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+  const labels = {
+    id: "รหัสรายการ",
+    username: "ชื่อผู้ใช้",
+    name: "ชื่อ",
+    title: "ชื่อเรื่อง",
+    roles: "บทบาท",
+    scopes: "ขอบเขตหน่วยงานของหัวหน้า",
+    active: "เปิดใช้งาน",
+    unit_id: "รหัสฝ่าย/กลุ่มงาน",
+    unit_name: "ฝ่าย/กลุ่มงาน",
+    work_id: "รหัสงาน",
+    work_name: "งานที่รับผิดชอบ",
+    parent_id: "รหัสสังกัด/งานแม่",
+    kind: "ประเภท",
+    category_id: "รหัสประเภทงาน",
+    line_user_id: "LINE User ID",
+    status: "สถานะ",
+    date: "วันที่ปฏิบัติงาน",
+    area: "พื้นที่",
+    workers: "ผู้ปฏิบัติงาน",
+    result: "ผลการดำเนินงาน",
+    metrics: "ตัวเลขผลการดำเนินงาน",
+    body: "เนื้อหาข่าว",
+    owner_id: "รหัสเจ้าของรายการ",
+    created_at: "วันที่สร้าง",
+    updated_at: "วันที่แก้ไข",
+    version: "รุ่นข้อมูล",
+    activity_id: "รหัสรายงานต้นทาง",
+    original_name: "ชื่อไฟล์",
+    purpose: "วัตถุประสงค์",
+    published_at: "วันที่เผยแพร่",
+    published_by: "รหัสผู้เผยแพร่",
+    source: "แหล่งข้อมูล",
+  };
+  const value = (key, v) => {
+    if (v === undefined || v === null || v === "") return "—";
+    if (key === "roles" && Array.isArray(v))
+      return v.map((role) => roleNames[role] || role).join(", ");
+    if (key === "active") return v ? "เปิดใช้งาน" : "ปิดใช้งาน";
+    if (key === "status")
+      return (
+        {
+          pending: "รอตรวจข้อมูล",
+          ready: "พร้อมสรุป",
+          draft: "ฉบับร่าง",
+          published: "เผยแพร่แล้ว",
+        }[v] || v
+      );
+    return typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
+  };
+  return fields.length ? (
+    <div className="table-scroll audit-changes">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">ข้อมูลที่เปลี่ยน</th>
+            <th scope="col">ค่าเดิม</th>
+            <th scope="col">ค่าใหม่</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fields.map((key) => (
+            <tr key={key}>
+              <th scope="row">{labels[key] || key}</th>
+              <td data-label="ค่าเดิม">{value(key, before[key])}</td>
+              <td data-label="ค่าใหม่">{value(key, after[key])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <Notice>รายการนี้ไม่มีค่าที่เปลี่ยนแปลงในข้อมูลที่บันทึกไว้</Notice>
+  );
+}
 function Audit() {
   const [filters, setFilters] = useState({ page: 1 }),
     [selected, setSelected] = useState(null);
-  const { navigate } = useApp();
+  const { navigate, isPr } = useApp();
   const r = useResource("/admin/audits?" + query(filters));
   return (
     <>
@@ -3501,6 +3644,23 @@ function Audit() {
               setFilters({ ...filters, q: e.target.value, page: 1 })
             }
           />
+        </label>
+        <label className="audit-entity-filter">
+          ประเภทรายการ
+          <select
+            aria-label="ประเภทรายการ"
+            value={filters.entity || ""}
+            onChange={(e) =>
+              setFilters({ ...filters, entity: e.target.value, page: 1 })
+            }
+          >
+            <option value="">ทุกประเภท</option>
+            {Object.entries(auditEntities).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="date-filter">
           ตั้งแต่
@@ -3546,15 +3706,7 @@ function Audit() {
                           <td>{a.actor_name}</td>
                           <td>{a.action}</td>
                           <td>
-                            {{
-                              activity: "รายการงาน",
-                              news: "ข่าว",
-                              user: "บัญชี",
-                              file: "ไฟล์",
-                              units: "หน่วยงาน",
-                              categories: "หมวดข้อมูล",
-                            }[a.entity] || a.entity}{" "}
-                            #{a.entity_id}
+                            {auditEntities[a.entity] || a.entity} #{a.entity_id}
                           </td>
                           <td>
                             <Button onClick={() => setSelected(a)} icon={Eye}>
@@ -3587,22 +3739,9 @@ function Audit() {
             {selected.action} · {selected.actor_name} ·{" "}
             {fmt(selected.created_at, true)}
           </p>
-          <div className="audit-diff">
-            {[
-              ["ค่าเดิม", selected.before_json],
-              ["ค่าใหม่", selected.after_json],
-            ].map(([title, json]) => (
-              <div key={title}>
-                <h3>{title}</h3>
-                <pre>
-                  {json
-                    ? JSON.stringify(JSON.parse(json), null, 2)
-                    : "ไม่มีข้อมูล"}
-                </pre>
-              </div>
-            ))}
-          </div>
-          {["activity", "news"].includes(selected.entity) && (
+          <AuditChanges entry={selected} />
+          {(selected.entity === "activity" ||
+            (selected.entity === "news" && isPr)) && (
             <div className="modal-actions">
               <Button
                 onClick={() => {

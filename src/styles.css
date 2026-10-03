@@ -1391,6 +1391,77 @@ footer {
 .connection-icon ~ p {
   margin-top: 20px;
 }
+.line-details {
+  margin: 22px 0 0;
+  display: grid;
+  gap: 8px;
+}
+.line-details dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.line-details dd {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+.line-user-id {
+  overflow-wrap: anywhere;
+}
+.audit-entity-filter {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.audit-changes {
+  margin-top: 20px;
+}
+.audit-changes table {
+  table-layout: fixed;
+  min-width: 600px;
+}
+.audit-changes th,
+.audit-changes td {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.audit-changes tbody th {
+  font-weight: 500;
+}
+.audit-changes tbody td:last-child {
+  background: #f0f8f3;
+}
+@media (max-width: 600px) {
+  .audit-changes table {
+    display: block;
+    min-width: 0;
+  }
+  .audit-changes thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .audit-changes tbody {
+    display: grid;
+    gap: 16px;
+  }
+  .audit-changes tbody tr {
+    display: grid;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .audit-changes td::before {
+    content: attr(data-label);
+    display: block;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+}
 .audit-diff {
   display: grid;
   grid-template-columns: 1fr 1fr;
