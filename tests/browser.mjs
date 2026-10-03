@@ -117,6 +117,83 @@ try {
     path: "test-results/admin-desktop.png",
     fullPage: true,
   });
+  // A head chooses responsible departments once; hidden staff inputs cannot
+  // accidentally assign the new head to a department selected before switching roles.
+  await page.getByRole("button", { name: "เพิ่มบัญชี", exact: true }).click();
+  await page.getByLabel("ชื่อผู้ใช้ *", { exact: true }).fill("head.real");
+  await page.getByLabel("ชื่อ–นามสกุล *", { exact: true }).fill("หัวหน้าทดสอบ");
+  await page
+    .getByLabel("รหัสผ่านอย่างน้อย 12 ตัวอักษร *", { exact: true })
+    .fill("New-head-password!");
+  await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
+  await page
+    .getByLabel("งานที่รับผิดชอบ *", { exact: true })
+    .selectOption(String(assignedWork));
+  await page
+    .getByRole("checkbox", { name: "เจ้าหน้าที่ปฏิบัติงาน", exact: true })
+    .uncheck();
+  await page
+    .getByRole("checkbox", { name: "หัวหน้าฝ่าย", exact: true })
+    .check();
+  assert.equal(
+    await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await page.getByLabel("งานที่รับผิดชอบ *", { exact: true }).count(),
+    0,
+  );
+  await page
+    .getByRole("checkbox", { name: "ฝ่ายป้องกันและควบคุมโรค", exact: true })
+    .check();
+  await page.screenshot({
+    path: "test-results/head-single-assignment-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: "test-results/head-single-assignment-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "บันทึกบัญชี", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const headAccount = app.locals.db
+    .prepare("SELECT * FROM users WHERE username='head.real'")
+    .get();
+  assert.equal(headAccount.unit_id, null);
+  assert.equal(headAccount.work_id, null);
+  assert.deepEqual(JSON.parse(headAccount.scopes), [2]);
+  await page
+    .getByRole("row")
+    .filter({ hasText: "head.real" })
+    .getByRole("button", { name: "แก้ไข", exact: true })
+    .click();
+  assert.equal(
+    await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await page
+      .getByRole("checkbox", { name: "ฝ่ายป้องกันและควบคุมโรค", exact: true })
+      .isChecked(),
+    true,
+  );
+  await page
+    .getByRole("checkbox", { name: "เจ้าหน้าที่ปฏิบัติงาน", exact: true })
+    .check();
+  await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
+  await page
+    .getByLabel("งานที่รับผิดชอบ *", { exact: true })
+    .selectOption(String(assignedWork));
+  await page.getByRole("button", { name: "บันทึกบัญชี", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const hybridAccount = app.locals.db
+    .prepare("SELECT * FROM users WHERE id=?")
+    .get(headAccount.id);
+  assert.equal(hybridAccount.unit_id, 1);
+  assert.equal(hybridAccount.work_id, assignedWork);
+  assert.deepEqual(JSON.parse(hybridAccount.scopes), [2]);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "นำเข้าข้อมูล", exact: true }).click();
   await page.locator("input[type=file]").setInputFiles({
     name: "evidence.pdf",

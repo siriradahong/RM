@@ -2995,7 +2995,13 @@ function UserForm({ initial, onClose, onSaved }) {
     try {
       const payload = {
         ...form,
-        unit_id: form.unit_id ? Number(form.unit_id) : null,
+        // Hidden staff fields must not assign a department to a new head account.
+        // Retain pre-existing affiliation metadata for other roles on edit.
+        unit_id: form.roles.includes("staff")
+          ? form.unit_id
+            ? Number(form.unit_id)
+            : null
+          : initial.unit_id || null,
         work_id:
           form.roles.includes("staff") && form.work_id
             ? Number(form.work_id)
@@ -3056,45 +3062,6 @@ function UserForm({ initial, onClose, onSaved }) {
             onChange={(e) => set("password", e.target.value)}
           />
         </Field>
-        <section className="account-assignment" aria-label="กำหนดฝ่ายและงาน">
-          <h3>ฝ่ายและงานที่แอดมินกำหนด</h3>
-          <Field label="ฝ่าย/กลุ่มงาน">
-            <select
-              value={form.unit_id || ""}
-              required={form.roles.includes("staff")}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, unit_id: e.target.value, work_id: "" }))
-              }
-            >
-              <option value="">เลือกฝ่าย/กลุ่มงาน</option>
-              <UnitOptions
-                units={meta.units}
-                allowed={meta.units.filter(
-                  (u) => u.active || u.id === form.unit_id,
-                )}
-              />
-            </select>
-          </Field>
-          <Field label="งานที่รับผิดชอบ *">
-            <select
-              required={form.roles.includes("staff")}
-              disabled={!form.unit_id || !form.roles.includes("staff")}
-              value={form.work_id || ""}
-              onChange={(e) => set("work_id", e.target.value)}
-            >
-              <option value="">
-                {!form.unit_id
-                  ? "เลือกฝ่ายก่อน แล้วเลือกงาน"
-                  : "เลือกงานในฝ่ายที่สังกัด"}
-              </option>
-              <WorkOptions
-                works={meta.works.filter((w) => w.active)}
-                unitId={form.unit_id}
-                selected={form.work_id}
-              />
-            </select>
-          </Field>
-        </section>
         <div>
           <span className="field-label">บทบาท *</span>
           <div className="checkbox-grid">
@@ -3117,6 +3084,51 @@ function UserForm({ initial, onClose, onSaved }) {
             ))}
           </div>
         </div>
+        {form.roles.includes("staff") && (
+          <section className="account-assignment" aria-label="กำหนดฝ่ายและงาน">
+            <h3>ฝ่ายและงานสำหรับบทบาทพนักงาน</h3>
+            <Field label="ฝ่าย/กลุ่มงาน">
+              <select
+                value={form.unit_id || ""}
+                required
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    unit_id: e.target.value,
+                    work_id: "",
+                  }))
+                }
+              >
+                <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+                <UnitOptions
+                  units={meta.units}
+                  allowed={meta.units.filter(
+                    (u) => u.active || u.id === form.unit_id,
+                  )}
+                />
+              </select>
+            </Field>
+            <Field label="งานที่รับผิดชอบ *">
+              <select
+                required
+                disabled={!form.unit_id}
+                value={form.work_id || ""}
+                onChange={(e) => set("work_id", e.target.value)}
+              >
+                <option value="">
+                  {!form.unit_id
+                    ? "เลือกฝ่ายก่อน แล้วเลือกงาน"
+                    : "เลือกงานในฝ่ายที่สังกัด"}
+                </option>
+                <WorkOptions
+                  works={meta.works.filter((w) => w.active)}
+                  unitId={form.unit_id}
+                  selected={form.work_id}
+                />
+              </select>
+            </Field>
+          </section>
+        )}
         {form.roles.includes("head") && (
           <div>
             <span className="field-label">หน่วยงานที่หัวหน้ารับผิดชอบ *</span>
