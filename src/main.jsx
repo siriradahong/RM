@@ -572,6 +572,12 @@ function App() {
           </button>
         </header>
         <main className="content" id="main-content" tabIndex={-1}>
+          {meta.demo?.activityCount > 0 && (
+            <div className="demo-notice" role="note">
+              <span>ข้อมูลสาธิต</span> รายการที่ขึ้นต้น [สาธิต]
+              เป็นตัวอย่างสมมติ และถูกรวมในตัวเลขสรุปด้วย
+            </div>
+          )}
           {page}
           <footer>
             สำนักสาธารณสุขและสิ่งแวดล้อม เทศบาลนครขอนแก่น
@@ -2277,6 +2283,13 @@ function LineInbox() {
         <Notice>
           ยังไม่ได้ตั้งค่า LINE webhook
           ระบบจะแสดงรายงานที่ได้รับจริงหลังผู้ดูแลเชื่อมต่อช่องทางแล้ว
+        </Notice>
+      )}
+      {meta.demo?.simulatedInboxCount > 0 && (
+        <Notice>
+          ข้อความที่ขึ้นต้น [สาธิต]
+          เป็นรายการจำลองในเครื่องสำหรับลองขั้นตอนจัดรายงาน
+          ยังไม่ใช่ข้อความที่รับจาก LINE จริง
         </Notice>
       )}
       <section className="panel">

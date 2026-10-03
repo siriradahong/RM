@@ -204,6 +204,18 @@ export function createApp(options = {}) {
       units: db.prepare("SELECT * FROM units ORDER BY sort_order,id").all(),
       works: db.prepare("SELECT * FROM works ORDER BY id").all(),
       categories: db.prepare("SELECT * FROM categories ORDER BY id").all(),
+      demo: {
+        activityCount: db
+          .prepare(
+            "SELECT COUNT(*) count FROM activities WHERE title LIKE '[สาธิต]%' ",
+          )
+          .get().count,
+        simulatedInboxCount: db
+          .prepare(
+            "SELECT COUNT(*) count FROM inbox WHERE event_id LIKE 'demo:%'",
+          )
+          .get().count,
+      },
       ai: { configured: false },
       line: {
         receiveConfigured: Boolean(

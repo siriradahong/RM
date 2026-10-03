@@ -158,7 +158,9 @@ export function registerAdminRoutes(app, db) {
       ),
       lastReceived:
         db
-          .prepare("SELECT received_at FROM inbox ORDER BY id DESC LIMIT 1")
+          .prepare(
+            "SELECT received_at FROM inbox WHERE event_id NOT LIKE 'demo:%' ORDER BY id DESC LIMIT 1",
+          )
           .get()?.received_at || null,
       lastSent:
         db

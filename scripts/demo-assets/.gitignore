@@ -1,0 +1,4 @@
+# Authoring previews and runtime linkage are not demo evidence.
+.*.png
+*.inspect.ndjson
+node_modules

@@ -14,8 +14,9 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "admin:create": "node --env-file-if-exists=.env scripts/create-admin.mjs",
     "backup": "node --env-file-if-exists=.env scripts/backup.mjs",
-    "test": "node --test tests/api.test.js",
-    "test:browser": "node tests/browser.mjs"
+    "test": "node --test tests/api.test.js tests/demo.test.mjs",
+    "test:browser": "node tests/browser.mjs",
+    "demo:seed": "node --env-file-if-exists=.env scripts/seed-demo.mjs"
   },
   "dependencies": {
     "@fontsource/noto-sans-thai": "^5.3.0",
