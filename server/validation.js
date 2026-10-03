@@ -16,6 +16,7 @@ export const activitySchema = z
     title: z.string().trim().min(1).max(300),
     date: date.nullable().default(null),
     unit_id: id,
+    work_id: id.nullable().default(null),
     category_id: id.nullable().default(null),
     area: optionalText(300),
     workers: optionalText(),
@@ -103,7 +104,12 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 export const masterSchema = z.object({
-  name: z.string().trim().min(1).max(200),
+  name: z
+    .string()
+    .transform((v) => v.normalize("NFC").trim().replace(/\s+/g, " "))
+    .pipe(z.string().min(1).max(200)),
   active: z.boolean().default(true),
   parent_id: id.nullable().default(null),
+  kind: z.enum(["section", "division", "group"]).default("division"),
 });
+export const workSchema = masterSchema.extend({ unit_id: id });

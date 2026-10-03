@@ -1,6 +1,7 @@
-import { userSchema, masterSchema } from "./validation.js";
+import { userSchema } from "./validation.js";
 import { hashPassword, httpError } from "./security.js";
 import { publicUser, transaction, writeAudit } from "./db.js";
+import { registerMasterRoutes } from "./master-routes.js";
 
 export function registerAdminRoutes(app, db) {
   app.use("/api/admin", (req, res, next) =>
@@ -31,14 +32,20 @@ export function registerAdminRoutes(app, db) {
     if (
       input.unit_id &&
       !db
-        .prepare("SELECT id FROM units WHERE id=? AND active=1")
+        .prepare(
+          "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+        )
         .get(input.unit_id)
     )
       throw httpError(400, "สังกัดไม่พร้อมใช้งาน");
     if (
       input.scopes.some(
         (i) =>
-          !db.prepare("SELECT id FROM units WHERE id=? AND active=1").get(i),
+          !db
+            .prepare(
+              "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+            )
+            .get(i),
       )
     )
       throw httpError(400, "หน่วยงานที่รับผิดชอบไม่พร้อมใช้งาน");
@@ -98,62 +105,7 @@ export function registerAdminRoutes(app, db) {
   }
   app.post("/api/admin/users", saveUser);
   app.put("/api/admin/users/:id", saveUser);
-  for (const table of ["units", "categories"]) {
-    function save(req, res) {
-      const input = masterSchema.parse(req.body),
-        old = req.params.id
-          ? db
-              .prepare(`SELECT * FROM ${table} WHERE id=?`)
-              .get(Number(req.params.id))
-          : null;
-      if (req.params.id && !old) throw httpError(404, "ไม่พบข้อมูล");
-      if (table === "units" && input.parent_id) {
-        let parent = input.parent_id;
-        const seen = new Set([Number(req.params.id)]);
-        while (parent) {
-          if (seen.has(parent)) throw httpError(400, "โครงสร้างหน่วยงานวนซ้ำ");
-          seen.add(parent);
-          const row = db.prepare("SELECT * FROM units WHERE id=?").get(parent);
-          if (!row) throw httpError(400, "ไม่พบหน่วยงานแม่");
-          parent = row.parent_id;
-        }
-      }
-      const out = transaction(db, () => {
-        let id;
-        if (old) {
-          if (table === "units")
-            db.prepare(
-              "UPDATE units SET name=?,active=?,parent_id=? WHERE id=?",
-            ).run(input.name, input.active ? 1 : 0, input.parent_id, old.id);
-          else
-            db.prepare("UPDATE categories SET name=?,active=? WHERE id=?").run(
-              input.name,
-              input.active ? 1 : 0,
-              old.id,
-            );
-          id = old.id;
-        } else if (table === "units")
-          id = Number(
-            db
-              .prepare("INSERT INTO units(name,active,parent_id) VALUES(?,?,?)")
-              .run(input.name, input.active ? 1 : 0, input.parent_id)
-              .lastInsertRowid,
-          );
-        else
-          id = Number(
-            db
-              .prepare("INSERT INTO categories(name,active) VALUES(?,?)")
-              .run(input.name, input.active ? 1 : 0).lastInsertRowid,
-          );
-        const out = db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
-        writeAudit(db, req.user, "แก้ไขข้อมูลตั้งต้น", table, id, old, out);
-        return out;
-      });
-      res.json(out);
-    }
-    app.post(`/api/admin/${table}`, save);
-    app.put(`/api/admin/${table}/:id`, save);
-  }
+  registerMasterRoutes(app, db);
   app.get("/api/admin/audits", (req, res) => {
     let conditions = [],
       params = [];

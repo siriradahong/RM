@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
+import { migrateOrganization } from "./organization.js";
 
 export const ROLES = {
   staff: "เจ้าหน้าที่ปฏิบัติงาน",
@@ -58,6 +59,11 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
     ].forEach((n) =>
       db.prepare("INSERT INTO categories(name) VALUES(?)").run(n),
     );
+  }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=3").get()
+  ) {
+    transaction(db, () => migrateOrganization(db));
   }
   return { db, dataDir };
 }

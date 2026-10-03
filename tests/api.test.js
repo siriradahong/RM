@@ -127,6 +127,223 @@ describe(
       delete process.env.LINE_CHANNEL_SECRET;
       delete process.env.LINE_REPORT_GROUP_ID;
     });
+    it("provides the complete organization and preserves original unit IDs", async () => {
+      const { json: meta } = await request("/meta");
+      assert.equal(meta.units.filter((u) => u.kind === "section").length, 2);
+      assert.equal(meta.units.filter((u) => u.kind === "division").length, 8);
+      assert.equal(meta.units.filter((u) => u.kind === "group").length, 1);
+      assert.equal(meta.works.length, 30);
+      assert.equal(
+        meta.units.find((u) => u.id === 1).name,
+        "ฝ่ายส่งเสริมสุขภาพ",
+      );
+      assert.equal(
+        meta.units.find((u) => u.id === 2).name,
+        "ฝ่ายป้องกันและควบคุมโรค",
+      );
+      assert.equal(
+        meta.units.find((u) => u.id === 3).name,
+        "ฝ่ายบริการสิ่งแวดล้อม",
+      );
+      const pharmacy = meta.works.find((w) => w.name === "งานเภสัชกรรม");
+      assert.equal(
+        meta.works.find((w) => w.id === pharmacy.parent_id).name,
+        "งานศูนย์บริการสาธารณสุขที่ 3",
+      );
+      const reopened = openDatabase(dir);
+      assert.equal(
+        reopened.db.prepare("SELECT count(*) n FROM works").get().n,
+        30,
+      );
+      reopened.db.close();
+    });
+    it("allows writers to add shared categories, prevents duplicates and restricts management", async () => {
+      for (const as of ["staff", "head", "admin"]) {
+        const created = await request("/categories", {
+          as,
+          method: "POST",
+          body: { name: "  ประเภทใหม่  " + as + "  ", active: false },
+        });
+        assert.equal(created.status, 201);
+        assert.equal(created.json.name, "ประเภทใหม่ " + as);
+        assert.equal(created.json.active, 1);
+        assert.equal(
+          (
+            await request("/categories", {
+              as,
+              method: "POST",
+              body: { name: "ประเภทใหม่ " + as.toUpperCase() },
+            })
+          ).status,
+          409,
+        );
+        assert.ok(
+          app.locals.db
+            .prepare(
+              "SELECT id FROM audits WHERE entity='categories' AND entity_id=?",
+            )
+            .get(created.json.id),
+        );
+      }
+      for (const as of ["pr", "executive"])
+        assert.equal(
+          (
+            await request("/categories", {
+              as,
+              method: "POST",
+              body: { name: "ไม่มีสิทธิ์" },
+            })
+          ).status,
+          403,
+        );
+      assert.equal(
+        (
+          await request("/admin/categories/1", {
+            as: "staff",
+            method: "PUT",
+            body: { name: "เปลี่ยนชื่อ" },
+          })
+        ).status,
+        403,
+      );
+      assert.equal(
+        (await request("/categories", { method: "POST", body: { name: "  " } }))
+          .status,
+        400,
+      );
+    });
+    it("saves work under its own division, rejects mismatches, and retains inactive historical assignments", async () => {
+      const { json: meta } = await request("/meta");
+      const work = meta.works.find((w) => w.unit_id === 1);
+      const wrong = meta.works.find((w) => w.unit_id === 2);
+      for (const work_id of [wrong.id, 999999])
+        assert.equal(
+          (
+            await request("/activities", {
+              method: "POST",
+              body: { ...payload(), work_id },
+            })
+          ).status,
+          400,
+        );
+      const created = await request("/activities", {
+        method: "POST",
+        body: { ...payload(), work_id: work.id },
+      });
+      assert.equal(created.status, 201);
+      const record = (await request("/activities/" + created.json.id)).json;
+      assert.equal(record.work_name, work.name);
+      assert.equal(
+        (await request("/activities?work=" + work.id)).json.total,
+        1,
+      );
+      assert.equal(
+        (await request("/activities?work=" + wrong.id)).json.total,
+        0,
+      );
+      assert.equal(
+        (
+          await request("/admin/works/" + work.id, {
+            as: "admin",
+            method: "PUT",
+            body: { ...work, active: false },
+          })
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request("/activities", {
+            method: "POST",
+            body: { ...payload(), work_id: work.id },
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        (
+          await request("/activities/" + record.id, {
+            method: "PUT",
+            body: {
+              ...record,
+              title: "แก้ไขงานเก่า",
+              file_ids: [],
+              inbox_ids: [],
+            },
+          })
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request("/admin/works/" + work.id, {
+            as: "admin",
+            method: "PUT",
+            body: { ...work, unit_id: 2, active: true },
+          })
+        ).status,
+        400,
+      );
+      await request("/admin/works/" + work.id, {
+        as: "admin",
+        method: "PUT",
+        body: { ...work, active: true },
+      });
+      app.locals.db.prepare("DELETE FROM activities WHERE id=?").run(record.id);
+    });
+    it("validates work parents and limits organization changes to admins", async () => {
+      const { json: meta } = await request("/meta");
+      const work = meta.works.find((w) => w.unit_id === 1);
+      assert.equal(
+        (
+          await request("/admin/works", {
+            method: "POST",
+            body: { name: "งานใหม่", unit_id: 1 },
+          })
+        ).status,
+        403,
+      );
+      const created = await request("/admin/works", {
+        as: "admin",
+        method: "POST",
+        body: { name: "งานใหม่", unit_id: 1, parent_id: work.id },
+      });
+      assert.equal(created.status, 201);
+      assert.equal(
+        (
+          await request("/admin/works/" + work.id, {
+            as: "admin",
+            method: "PUT",
+            body: { ...work, active: true, parent_id: created.json.id },
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        (
+          await request("/admin/works", {
+            as: "admin",
+            method: "POST",
+            body: { name: "ผิดฝ่าย", unit_id: 2, parent_id: work.id },
+          })
+        ).status,
+        400,
+      );
+      const section = meta.units.find((u) => u.kind === "section");
+      assert.equal(
+        (
+          await request("/admin/works", {
+            as: "admin",
+            method: "POST",
+            body: { name: "ผิดระดับ", unit_id: section.id },
+          })
+        ).status,
+        400,
+      );
+      app.locals.db
+        .prepare("DELETE FROM works WHERE id=?")
+        .run(created.json.id);
+    });
     it("requires a session and never leaks password hashes", async () => {
       assert.equal((await request("/activities", { as: null })).status, 401);
       const me = await request("/auth/me");

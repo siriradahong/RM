@@ -2208,3 +2208,91 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+.category-control {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.add-category {
+  justify-self: start;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.organization-grid {
+  align-items: start;
+}
+.organization-grid > .panel {
+  min-width: 0;
+}
+.organization-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  background: #f4f7fa;
+  border-top: 1px solid var(--line);
+}
+.organization-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.organization-unit {
+  border-top: 1px solid var(--line);
+}
+.organization-unit summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 18px;
+  font-size: 14px;
+}
+.organization-unit summary::before {
+  content: "›";
+  font-size: 22px;
+  color: var(--blue);
+}
+.organization-unit[open] summary::before {
+  transform: rotate(90deg);
+}
+.organization-unit summary span {
+  flex: 1;
+  min-width: 0;
+}
+.organization-unit summary small {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.organization-actions {
+  padding: 0 18px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.organization-grid .master-list .sub-work {
+  padding-left: 34px;
+}
+.organization-grid .master-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.organization-grid .button {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .organization-grid .panel-heading,
+  .organization-heading {
+    flex-wrap: wrap;
+  }
+  .organization-grid .master-list > div {
+    padding: 14px;
+    gap: 8px;
+  }
+}
+
+.form-row:has(.category-control) {
+  align-items: start;
+}

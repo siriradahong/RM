@@ -48,6 +48,7 @@ import "@fontsource/noto-sans-thai/600.css";
 import "@fontsource/noto-sans-thai/700.css";
 import "./styles.css";
 import { api, setCsrf, query, fileUrl } from "./api";
+import { UnitOptions, WorkOptions } from "./organization";
 
 const Context = createContext();
 const useApp = () => useContext(Context);
@@ -767,11 +768,7 @@ function Filters({
         onChange={(e) => set("unit", e.target.value)}
       >
         <option value="">ทุกหน่วยงาน</option>
-        {meta.units.map((u) => (
-          <option key={u.id} value={u.id}>
-            {u.name}
-          </option>
-        ))}
+        <UnitOptions units={meta.units} />
       </select>
       {dates && (
         <>
@@ -1095,6 +1092,7 @@ function WorkTable({ rows }) {
               </td>
               <td>
                 {r.unit_name}
+                {r.work_name && <small>{r.work_name}</small>}
                 <small>{r.area || "ไม่พบข้อมูล"}</small>
               </td>
               <td>
@@ -1533,11 +1531,7 @@ function ImportPage() {
                   }}
                   disabled={busy || completed.current.size > 0}
                 >
-                  {writableUnits.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
+                  <UnitOptions units={meta.units} allowed={writableUnits} />
                 </select>
               </Field>
               <Field label="คำสำคัญ">
@@ -1599,6 +1593,7 @@ const blankActivity = (user, extra = {}) => ({
   date: today(),
   unit_id: user.unit_id || user.scopes[0] || "",
   category_id: "",
+  work_id: "",
   area: "",
   workers: "",
   result: "",
@@ -1617,7 +1612,8 @@ function ActivityEditor({ id }) {
     [busy, setBusy] = useState(false),
     [preview, setPreview] = useState(null),
     [evidence, setEvidence] = useState([]),
-    [attach, setAttach] = useState(false);
+    [attach, setAttach] = useState(false),
+    [addCategory, setAddCategory] = useState(false);
   const newRef = useRef(null);
   useEffect(() => {
     let alive = true;
@@ -1670,6 +1666,7 @@ function ActivityEditor({ id }) {
         ...form,
         unit_id: Number(form.unit_id),
         category_id: form.category_id ? Number(form.category_id) : null,
+        work_id: form.work_id ? Number(form.work_id) : null,
         date: form.date || null,
         metrics: form.metrics.map((m) => ({ ...m, value: Number(m.value) })),
       };
@@ -1788,48 +1785,78 @@ function ActivityEditor({ id }) {
                     required={form.status === "ready"}
                   />
                 </Field>
-                <Field label="หน่วยงาน *">
+                <Field label="ฝ่าย/กลุ่มงาน *">
                   <select
                     value={form.unit_id}
-                    onChange={(e) => change("unit_id", Number(e.target.value))}
                     required
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        unit_id: Number(e.target.value),
+                        work_id: "",
+                      }))
+                    }
                   >
-                    <option value="">เลือกหน่วยงาน</option>
-                    {meta.units
-                      .filter(
+                    <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+                    <UnitOptions
+                      units={meta.units}
+                      allowed={meta.units.filter(
                         (u) =>
-                          !editable ||
                           u.id === form.unit_id ||
-                          (user.roles.includes("staff") &&
-                            u.id === user.unit_id) ||
-                          (user.roles.includes("head") &&
-                            user.scopes.includes(u.id)),
-                      )
-                      .map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
+                          (u.active &&
+                            (!editable ||
+                              (user.roles.includes("staff") &&
+                                u.id === user.unit_id) ||
+                              (user.roles.includes("head") &&
+                                user.scopes.includes(u.id)))),
+                      )}
+                    />
                   </select>
                 </Field>
               </div>
+              <Field label="งานตามฝ่าย/กลุ่มงาน">
+                <select
+                  value={form.work_id || ""}
+                  onChange={(e) => change("work_id", e.target.value)}
+                  disabled={!form.unit_id}
+                >
+                  <option value="">ยังไม่ระบุงาน</option>
+                  <WorkOptions
+                    works={meta.works}
+                    unitId={form.unit_id}
+                    selected={form.work_id}
+                  />
+                </select>
+              </Field>
               <div className="form-row">
-                <Field label="ประเภทงาน">
-                  <select
-                    value={form.category_id || ""}
-                    onChange={(e) => change("category_id", e.target.value)}
-                    required={form.status === "ready"}
-                  >
-                    <option value="">ไม่พบข้อมูล / ยังไม่ระบุ</option>
-                    {meta.categories
-                      .filter((c) => c.active || c.id === form.category_id)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </select>
-                </Field>
+                <div className="category-control">
+                  <Field label="ประเภทงาน">
+                    <select
+                      value={form.category_id || ""}
+                      onChange={(e) => change("category_id", e.target.value)}
+                      required={form.status === "ready"}
+                    >
+                      <option value="">ไม่พบข้อมูล / ยังไม่ระบุ</option>
+                      {meta.categories
+                        .filter((c) => c.active || c.id === form.category_id)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                  {editable && (
+                    <Button
+                      type="button"
+                      className="add-category"
+                      icon={Plus}
+                      onClick={() => setAddCategory(true)}
+                    >
+                      เพิ่มประเภทงาน
+                    </Button>
+                  )}
+                </div>
                 <Field label="พื้นที่">
                   <input
                     value={form.area}
@@ -1966,6 +1993,15 @@ function ActivityEditor({ id }) {
       {preview && (
         <FilePreview file={preview} onClose={() => setPreview(null)} />
       )}{" "}
+      {addCategory && (
+        <CategoryCreator
+          onClose={() => setAddCategory(false)}
+          onCreated={(category) => {
+            change("category_id", category.id);
+            setAddCategory(false);
+          }}
+        />
+      )}
       {attach && (
         <AttachmentPicker
           onClose={() => setAttach(false)}
@@ -1979,6 +2015,59 @@ function ActivityEditor({ id }) {
         />
       )}
     </>
+  );
+}
+function CategoryCreator({ onClose, onCreated }) {
+  const { refreshMeta, notify } = useApp();
+  const [name, setName] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  return (
+    <Modal title="เพิ่มประเภทงาน" onClose={onClose}>
+      <p className="muted">
+        ประเภทงานที่เพิ่มจะใช้ร่วมกันทุกฝ่าย และเลือกให้รายการนี้ทันที
+      </p>
+      <form
+        className="form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            const category = await api("/categories", {
+              method: "POST",
+              body: { name },
+            });
+            await refreshMeta();
+            onCreated(category);
+            notify("เพิ่มประเภทงานแล้ว");
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Field label="ชื่อประเภทงาน *">
+          <input
+            autoFocus
+            required
+            maxLength={200}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        {error && <Notice error>{error}</Notice>}
+        <div className="modal-actions">
+          <Button type="button" onClick={onClose} disabled={busy}>
+            ยกเลิก
+          </Button>
+          <Button primary icon={Plus} disabled={busy}>
+            {busy ? "กำลังเพิ่ม…" : "เพิ่มและเลือกประเภทงาน"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 function AttachmentPicker({ onClose, onPick }) {
@@ -2782,13 +2871,12 @@ function UserForm({ initial, onClose, onSaved }) {
             onChange={(e) => set("unit_id", e.target.value)}
           >
             <option value="">ส่วนกลาง / ไม่ระบุ</option>
-            {meta.units
-              .filter((u) => u.active)
-              .map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
+            <UnitOptions
+              units={meta.units}
+              allowed={meta.units.filter(
+                (u) => u.active || u.id === form.unit_id,
+              )}
+            />
           </select>
         </Field>
         <div>
@@ -2818,7 +2906,7 @@ function UserForm({ initial, onClose, onSaved }) {
             <span className="field-label">หน่วยงานที่หัวหน้ารับผิดชอบ *</span>
             <div className="checkbox-grid">
               {meta.units
-                .filter((u) => u.active)
+                .filter((u) => u.active && u.kind !== "section")
                 .map((u) => (
                   <label key={u.id}>
                     <input
@@ -2872,70 +2960,144 @@ function MasterAdmin() {
   const [editing, setEditing] = useState(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const edit = (table, item = {}) => {
+    setError("");
+    setEditing({
+      name: "",
+      active: true,
+      kind: "division",
+      parent_id: null,
+      unit_id: "",
+      ...item,
+      active: item.active !== undefined ? !!item.active : true,
+      table,
+    });
+  };
+  const change = (key, value) => setEditing((e) => ({ ...e, [key]: value }));
+  const divisions = meta.units.filter((u) => u.kind !== "section");
+  const renderUnit = (unit) => {
+    const works = meta.works.filter((w) => w.unit_id === unit.id);
+    return (
+      <details className="organization-unit" key={unit.id}>
+        <summary>
+          <span>
+            {unit.name}
+            {!unit.active && " (ปิดใช้)"}
+          </span>
+          <small>{works.length} งาน</small>
+        </summary>
+        <div className="organization-actions">
+          <Button onClick={() => edit("units", unit)}>
+            แก้ไขฝ่าย/กลุ่มงาน
+          </Button>
+          <Button
+            icon={Plus}
+            onClick={() => edit("works", { unit_id: unit.id })}
+          >
+            เพิ่มงาน
+          </Button>
+        </div>
+        <div className="master-list">
+          {works.map((work) => (
+            <div key={work.id} className={work.parent_id ? "sub-work" : ""}>
+              <span>
+                {work.name}
+                {work.parent_id && (
+                  <small>
+                    ภายใต้ {works.find((w) => w.id === work.parent_id)?.name}
+                  </small>
+                )}
+              </span>
+              {!work.active && <Badge status="pending">ปิดใช้</Badge>}
+              <Button onClick={() => edit("works", work)}>แก้ไข</Button>
+            </div>
+          ))}
+          {!works.length && (
+            <p className="muted organization-actions">ยังไม่มีงานในฝ่ายนี้</p>
+          )}
+        </div>
+      </details>
+    );
+  };
   return (
     <>
-      <div className="master-grid">
-        {[
-          ["units", "โครงสร้างหน่วยงาน"],
-          ["categories", "หมวดข้อมูล / ประเภทงาน"],
-        ].map(([key, title]) => (
-          <section className="panel" key={key}>
-            <div className="panel-heading">
-              <h2>{title}</h2>
-              <Button
-                icon={Plus}
-                onClick={() => {
-                  setError("");
-                  setEditing({
-                    table: key,
-                    name: "",
-                    active: true,
-                    parent_id: null,
-                  });
-                }}
-              >
-                เพิ่ม
-              </Button>
+      <div className="master-grid organization-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>ส่วน ฝ่าย/กลุ่มงาน และงาน</h2>
+              <p>เลือกฝ่ายเพื่อดูงานในสังกัด</p>
             </div>
-            <div className="master-list">
-              {meta[key].map((item) => (
-                <div key={item.id}>
-                  <Building2 size={21} />
-                  <span>
-                    {item.name}
-                    {item.parent_id && (
-                      <small>
-                        สังกัด{" "}
-                        {meta.units.find((u) => u.id === item.parent_id)?.name}
-                      </small>
-                    )}
-                  </span>
-                  {!item.active && <Badge status="pending">ปิดใช้</Badge>}
-                  <Button
-                    onClick={() => {
-                      setError("");
-                      setEditing({
-                        ...item,
-                        active: !!item.active,
-                        table: key,
-                      });
-                    }}
-                  >
-                    แก้ไข
+            <Button icon={Plus} onClick={() => edit("units")}>
+              เพิ่มหน่วยงาน
+            </Button>
+          </div>
+          {divisions
+            .filter(
+              (u) =>
+                !u.parent_id ||
+                !meta.units.some(
+                  (p) => p.id === u.parent_id && p.kind === "section",
+                ),
+            )
+            .map(renderUnit)}
+          {meta.units
+            .filter((u) => u.kind === "section")
+            .map((section) => (
+              <section className="organization-section" key={section.id}>
+                <div className="organization-heading">
+                  <h3>
+                    {section.name}
+                    {!section.active && " (ปิดใช้)"}
+                  </h3>
+                  <Button onClick={() => edit("units", section)}>
+                    แก้ไขส่วน
                   </Button>
                 </div>
-              ))}
+                {divisions
+                  .filter((u) => u.parent_id === section.id)
+                  .map(renderUnit)}
+              </section>
+            ))}
+        </section>
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>ประเภทงาน</h2>
+              <p>ใช้ร่วมกันทุกฝ่าย</p>
             </div>
-          </section>
-        ))}
+            <Button icon={Plus} onClick={() => edit("categories")}>
+              เพิ่มประเภทงาน
+            </Button>
+          </div>
+          <div className="master-list">
+            {meta.categories.map((item) => (
+              <div key={item.id}>
+                <span>{item.name}</span>
+                {!item.active && <Badge status="pending">ปิดใช้</Badge>}
+                <Button onClick={() => edit("categories", item)}>แก้ไข</Button>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
       {editing && (
-        <Modal title="จัดการข้อมูลตั้งต้น" onClose={() => setEditing(null)}>
+        <Modal
+          title={
+            {
+              units: "จัดการส่วนและฝ่าย/กลุ่มงาน",
+              works: "จัดการงานตามฝ่าย",
+              categories: "จัดการประเภทงาน",
+            }[editing.table]
+          }
+          onClose={() => setEditing(null)}
+        >
           <form
             className="form"
             onSubmit={async (e) => {
               e.preventDefault();
               setBusy(true);
+              setError("");
               try {
                 await api(
                   "/admin/" +
@@ -2956,48 +3118,112 @@ function MasterAdmin() {
             <Field label="ชื่อ *">
               <input
                 required
+                maxLength={200}
                 value={editing.name}
-                onChange={(e) =>
-                  setEditing({ ...editing, name: e.target.value })
-                }
+                onChange={(e) => change("name", e.target.value)}
               />
             </Field>
             {editing.table === "units" && (
-              <Field label="หน่วยงานแม่">
-                <select
-                  value={editing.parent_id || ""}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      parent_id: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
-                >
-                  <option value="">ไม่มีหน่วยงานแม่</option>
-                  {meta.units
-                    .filter((u) => u.id !== editing.id)
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
+              <>
+                <Field label="ระดับหน่วยงาน">
+                  <select
+                    value={editing.kind}
+                    onChange={(e) =>
+                      setEditing((v) => ({
+                        ...v,
+                        kind: e.target.value,
+                        parent_id: null,
+                      }))
+                    }
+                  >
+                    <option value="section">ส่วน</option>
+                    <option value="division">ฝ่าย</option>
+                    <option value="group">กลุ่มงาน</option>
+                  </select>
+                </Field>
+                {editing.kind !== "section" && (
+                  <Field label="ส่วนที่สังกัด">
+                    <select
+                      value={editing.parent_id || ""}
+                      onChange={(e) =>
+                        change("parent_id", Number(e.target.value) || null)
+                      }
+                    >
+                      <option value="">สังกัดสำนักโดยตรง</option>
+                      {meta.units
+                        .filter((u) => u.kind === "section")
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                )}
+              </>
+            )}
+            {editing.table === "works" && (
+              <>
+                <Field label="ฝ่าย/กลุ่มงาน *">
+                  <select
+                    required
+                    value={editing.unit_id}
+                    onChange={(e) =>
+                      setEditing((v) => ({
+                        ...v,
+                        unit_id: Number(e.target.value),
+                        parent_id: null,
+                      }))
+                    }
+                  >
+                    <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+                    <UnitOptions
+                      units={meta.units}
+                      allowed={divisions.filter(
+                        (u) => u.active || u.id === editing.unit_id,
+                      )}
+                    />
+                  </select>
+                </Field>
+                <Field label="งานแม่ (ถ้ามี)">
+                  <select
+                    value={editing.parent_id || ""}
+                    onChange={(e) =>
+                      change("parent_id", Number(e.target.value) || null)
+                    }
+                  >
+                    <option value="">ไม่มีงานแม่</option>
+                    {meta.works
+                      .filter(
+                        (w) =>
+                          w.unit_id === editing.unit_id && w.id !== editing.id,
+                      )
+                      .map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+              </>
             )}
             <label className="checkbox-label">
               <input
                 type="checkbox"
                 checked={editing.active}
-                onChange={(e) =>
-                  setEditing({ ...editing, active: e.target.checked })
-                }
+                onChange={(e) => change("active", e.target.checked)}
               />
               เปิดใช้งาน
             </label>
             {error && <Notice error>{error}</Notice>}
-            <Button primary disabled={busy}>
-              บันทึก
-            </Button>
+            <div className="modal-actions">
+              <Button type="button" onClick={() => setEditing(null)}>
+                ยกเลิก
+              </Button>
+              <Button primary disabled={busy} icon={Save}>
+                บันทึก
+              </Button>
+            </div>
           </form>
         </Modal>
       )}

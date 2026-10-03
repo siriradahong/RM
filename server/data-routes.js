@@ -32,7 +32,7 @@ export function activity(db, row, user) {
     can_edit: canEdit(user, row),
   };
 }
-const selectActivity = `SELECT a.*,u.name AS unit_name,c.name AS category_name,o.name AS owner_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id`;
+const selectActivity = `SELECT a.*,u.name AS unit_name,c.name AS category_name,o.name AS owner_name,w.name AS work_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id LEFT JOIN works w ON w.id=a.work_id`;
 function whereFor(req, alias = "a") {
   const clauses = [],
     params = [];
@@ -40,6 +40,7 @@ function whereFor(req, alias = "a") {
     clauses.push(sql);
     params.push(v);
   };
+  if (req.query.work) add(`${alias}.work_id=?`, Number(req.query.work));
   if (req.query.unit) add(`${alias}.unit_id=?`, Number(req.query.unit));
   if (req.query.mine === "1") add(`${alias}.owner_id=?`, req.user.id);
   if (req.query.from)
@@ -148,7 +149,9 @@ export function registerDataRoutes(app, db, dataDir) {
       throw httpError(409, "มีผู้แก้ไขรายการนี้แล้ว กรุณาโหลดข้อมูลใหม่");
     if (
       !db
-        .prepare("SELECT id FROM units WHERE id=? AND active=1")
+        .prepare(
+          "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+        )
         .get(input.unit_id)
     )
       throw httpError(400, "หน่วยงานไม่พร้อมใช้งาน");
@@ -159,6 +162,18 @@ export function registerDataRoutes(app, db, dataDir) {
         .get(input.category_id)
     )
       throw httpError(400, "หมวดข้อมูลไม่พร้อมใช้งาน");
+    if (
+      input.work_id &&
+      !db
+        .prepare(
+          "SELECT id FROM works WHERE id=? AND unit_id=? AND (active=1 OR id=?)",
+        )
+        .get(input.work_id, input.unit_id, record?.work_id || null)
+    )
+      throw httpError(
+        400,
+        "กรุณาเลือกงานที่อยู่ในฝ่าย/กลุ่มงานที่เลือกและเปิดใช้งาน",
+      );
     const files = input.file_ids.map((id) =>
       db.prepare("SELECT * FROM files WHERE id=?").get(id),
     );
@@ -197,6 +212,7 @@ export function registerDataRoutes(app, db, dataDir) {
         input.date,
         input.unit_id,
         input.category_id,
+        input.work_id,
         input.area,
         input.workers,
         input.result,
@@ -206,14 +222,14 @@ export function registerDataRoutes(app, db, dataDir) {
       let recordId;
       if (record) {
         db.prepare(
-          "UPDATE activities SET title=?,date=?,unit_id=?,category_id=?,area=?,workers=?,result=?,metrics=?,status=?,version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+          "UPDATE activities SET title=?,date=?,unit_id=?,category_id=?,work_id=?,area=?,workers=?,result=?,metrics=?,status=?,version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
         ).run(...values, record.id);
         recordId = record.id;
       } else
         recordId = Number(
           db
             .prepare(
-              "INSERT INTO activities(title,date,unit_id,category_id,area,workers,result,metrics,status,source,owner_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              "INSERT INTO activities(title,date,unit_id,category_id,work_id,area,workers,result,metrics,status,source,owner_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             )
             .run(...values, messages.length ? "line" : "web", req.user.id)
             .lastInsertRowid,
@@ -254,11 +270,7 @@ export function registerDataRoutes(app, db, dataDir) {
   app.put("/api/activities/:id", saveActivity);
   app.get("/api/dashboard", (req, res) => {
     const { where, params } = whereFor(req);
-    const rows = db
-      .prepare(
-        `SELECT a.*,u.name AS unit_name,c.name AS category_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id${where}`,
-      )
-      .all(...params);
+    const rows = db.prepare(`${selectActivity}${where}`).all(...params);
     const ready = rows.filter((r) => r.status === "ready"),
       pending = rows.filter((r) => r.status === "pending");
     const metrics = new Map(),
@@ -337,7 +349,13 @@ export function registerDataRoutes(app, db, dataDir) {
         throw httpError(403, "ไม่มีสิทธิ์นำเข้าไฟล์ในหน่วยงานนี้");
       if (!["archive", "evidence"].includes(purpose))
         throw httpError(400, "กรุณาระบุวัตถุประสงค์");
-      if (!db.prepare("SELECT id FROM units WHERE id=? AND active=1").get(unit))
+      if (
+        !db
+          .prepare(
+            "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+          )
+          .get(unit)
+      )
         throw httpError(400, "หน่วยงานไม่พร้อมใช้งาน");
       let detected;
       try {

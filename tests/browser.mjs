@@ -24,7 +24,7 @@ app.locals.db
     await hashPassword(password),
     1,
     JSON.stringify(["admin", "staff", "head", "executive", "pr"]),
-    "[1]",
+    "[1,2]",
   );
 let browser, server;
 try {
@@ -110,7 +110,59 @@ try {
   await page
     .getByLabel("วันที่ปฏิบัติงาน", { exact: true })
     .fill(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" }));
-  await page.getByLabel("ประเภทงาน", { exact: true }).selectOption("1");
+  const workSelect = page.getByLabel("งานตามฝ่าย/กลุ่มงาน", { exact: true });
+  await workSelect.selectOption({ label: "งานสาธารณสุขชุมชน" });
+  await page.getByLabel("ฝ่าย/กลุ่มงาน *", { exact: true }).selectOption("2");
+  assert.equal(await workSelect.inputValue(), "");
+  assert.equal(
+    await workSelect
+      .locator("option")
+      .filter({ hasText: "งานสาธารณสุขชุมชน" })
+      .count(),
+    0,
+  );
+  await workSelect.selectOption({ label: "งานป้องกันโรคติดต่อ" });
+  await page.getByLabel("ฝ่าย/กลุ่มงาน *", { exact: true }).selectOption("1");
+  await workSelect.selectOption({ label: "งานสาธารณสุขชุมชน" });
+  await page
+    .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
+    .click();
+  await page
+    .getByLabel("ชื่อประเภทงาน *", { exact: true })
+    .fill("ลงพื้นที่ชุมชน");
+  await page
+    .getByRole("button", { name: "เพิ่มและเลือกประเภทงาน", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  assert.equal(
+    await page
+      .getByLabel("ประเภทงาน", { exact: true })
+      .locator("option:checked")
+      .textContent(),
+    "ลงพื้นที่ชุมชน",
+  );
+  assert.equal(
+    await page.getByLabel("ชื่องาน *", { exact: true }).inputValue(),
+    "ประชุมเครือข่าย อสม.",
+  );
+  await page
+    .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
+    .click();
+  await page
+    .getByLabel("ชื่อประเภทงาน *", { exact: true })
+    .fill("ลงพื้นที่ชุมชน");
+  await page
+    .getByRole("button", { name: "เพิ่มและเลือกประเภทงาน", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "มีประเภทงานชื่อนี้แล้ว" })
+    .waitFor();
+  await page.getByRole("button", { name: "ยกเลิก", exact: true }).click();
+  await page.screenshot({
+    path: "test-results/organization-form-desktop.png",
+    fullPage: true,
+  });
   await page.getByLabel("พื้นที่", { exact: true }).fill("ชุมชนทดสอบ");
   await page
     .getByLabel("ผู้ปฏิบัติงานตามข้อมูลต้นทาง", { exact: true })
@@ -181,11 +233,94 @@ try {
       false,
       "Detail page overflow at " + width,
     );
+    assert.equal(
+      await page
+        .getByLabel("งานตามฝ่าย/กลุ่มงาน", { exact: true })
+        .locator("option:checked")
+        .textContent(),
+      "งานสาธารณสุขชุมชน",
+    );
+    assert.equal(
+      await page
+        .getByLabel("ประเภทงาน", { exact: true })
+        .locator("option:checked")
+        .textContent(),
+      "ลงพื้นที่ชุมชน",
+    );
+    if (width === 390) {
+      await page
+        .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
+        .click();
+      await page
+        .getByLabel("ชื่อประเภทงาน *", { exact: true })
+        .fill("ติดตามผลในชุมชน");
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        ),
+        false,
+      );
+      await page.screenshot({
+        path: "test-results/category-mobile.png",
+        fullPage: false,
+      });
+      await page
+        .getByRole("button", { name: "เพิ่มและเลือกประเภทงาน", exact: true })
+        .click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      assert.equal(
+        await page
+          .getByLabel("ประเภทงาน", { exact: true })
+          .locator("option:checked")
+          .textContent(),
+        "ติดตามผลในชุมชน",
+      );
+      // Restore the saved type: this check exercises adding on mobile without changing the report.
+      await page
+        .getByLabel("ประเภทงาน", { exact: true })
+        .selectOption({ label: "ลงพื้นที่ชุมชน" });
+    }
     await page.screenshot({
       path: `test-results/detail-${width}.png`,
       fullPage: true,
     });
   }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(origin + "/#admin");
+  await page
+    .getByRole("tab", { name: "หน่วยงานและหมวดข้อมูล", exact: true })
+    .click();
+  await page
+    .locator("summary")
+    .filter({ hasText: "ฝ่ายบริการสาธารณสุข" })
+    .click();
+  await page
+    .locator(".master-list span")
+    .filter({ hasText: /^งานเภสัชกรรม/ })
+    .waitFor();
+  await page.screenshot({
+    path: "test-results/organization-admin-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await page.screenshot({
+    path: "test-results/organization-admin-mobile.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
+    .click();
+  await page.getByLabel("ชื่อ *", { exact: true }).fill("ประเภทจากผู้ดูแลระบบ");
+  await page.getByRole("button", { name: "บันทึก", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.getByText("ประเภทจากผู้ดูแลระบบ", { exact: true }).waitFor();
+  await page.goto(origin + "/#activity/1");
   await page.reload();
   await page
     .getByRole("heading", { name: "รายละเอียดและตรวจแก้ข้อมูล", exact: true })

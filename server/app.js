@@ -201,7 +201,8 @@ export function createApp(options = {}) {
   app.get("/api/meta", (req, res) =>
     res.json({
       roles: ROLES,
-      units: db.prepare("SELECT * FROM units ORDER BY id").all(),
+      units: db.prepare("SELECT * FROM units ORDER BY sort_order,id").all(),
+      works: db.prepare("SELECT * FROM works ORDER BY id").all(),
       categories: db.prepare("SELECT * FROM categories ORDER BY id").all(),
       ai: { configured: false },
       line: {

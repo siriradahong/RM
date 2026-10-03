@@ -1,8 +1,9 @@
-import { backup } from "node:sqlite";
+import { backup, DatabaseSync } from "node:sqlite";
 import { mkdir, cp } from "node:fs/promises";
 import { resolve } from "node:path";
-import { openDatabase } from "../server/db.js";
-const { db, dataDir } = openDatabase();
+// A backup must capture the current schema before any pending migration runs.
+const dataDir = resolve(process.env.DATA_DIR || "./data");
+const db = new DatabaseSync(resolve(dataDir, "rm.sqlite"), { readOnly: true });
 const destination = resolve(
   "backups",
   new Date().toISOString().replaceAll(":", "-"),
