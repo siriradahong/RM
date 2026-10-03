@@ -59,6 +59,48 @@ const roleNames = {
   pr: "เจ้าหน้าที่ประชาสัมพันธ์",
   admin: "ผู้ดูแลระบบ",
 };
+const hasHeadScope = (user, unitId) =>
+  user.roles.includes("head") && user.scopes.includes(Number(unitId));
+const staffOnly = (user) =>
+  user.roles.includes("staff") && !user.roles.includes("head");
+const assignedWorkReady = (user, meta) =>
+  !!meta.works.find(
+    (w) => w.id === user.work_id && w.unit_id === user.unit_id && w.active,
+  ) && !!meta.units.find((u) => u.id === user.unit_id && u.active);
+function AssignmentFields({ unitId, workId, historical = false }) {
+  const { meta } = useApp();
+  return (
+    <div className="assignment-fields">
+      <div className="form-row">
+        <Field label="ฝ่าย/กลุ่มงาน">
+          <input
+            readOnly
+            value={
+              meta.units.find((u) => u.id === Number(unitId))?.name ||
+              "ยังไม่ได้กำหนดฝ่าย"
+            }
+          />
+        </Field>
+        <Field label="งานที่รับผิดชอบ">
+          <input
+            readOnly
+            value={
+              meta.works.find((w) => w.id === Number(workId))?.name ||
+              (historical
+                ? "ยังไม่ระบุงานในรายการเดิม"
+                : "รอผู้ดูแลระบบกำหนดงาน")
+            }
+          />
+        </Field>
+      </div>
+      <small className="muted">
+        {historical
+          ? "ฝ่ายและงานตามข้อมูลที่บันทึกไว้ในรายการนี้"
+          : "ผู้ดูแลระบบกำหนดให้พนักงาน 1 ฝ่าย และ 1 งาน"}
+      </small>
+    </div>
+  );
+}
 const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
 const monthRange = () => {
@@ -756,7 +798,7 @@ function Filters({
           <Search size={19} />
           <input
             aria-label="ค้นหา"
-            placeholder="ค้นหาชื่องาน หรือคำสำคัญ"
+            placeholder="ค้นหาชื่อเรื่อง หรือคำสำคัญ"
             value={value.q || ""}
             onChange={(e) => set("q", e.target.value)}
           />
@@ -1068,7 +1110,7 @@ function WorkTable({ rows }) {
       <table>
         <thead>
           <tr>
-            <th>ชื่องาน / วันที่ปฏิบัติงาน</th>
+            <th>ชื่อเรื่อง / วันที่ปฏิบัติงาน</th>
             <th>หน่วยงาน / พื้นที่</th>
             <th>ผลการดำเนินงาน</th>
             <th>แหล่งที่มา</th>
@@ -1336,7 +1378,8 @@ function ImportPage() {
     [files, setFiles] = useState([]),
     [purpose, setPurpose] = useState("archive"),
     [unit, setUnit] = useState(user.unit_id || user.scopes[0] || ""),
-    [keywords, setKeywords] = useState(""),
+    [subject, setSubject] = useState(""),
+    [work, setWork] = useState(user.work_id || ""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState(0);
@@ -1347,6 +1390,8 @@ function ImportPage() {
       ((user.roles.includes("staff") && u.id === user.unit_id) ||
         (user.roles.includes("head") && user.scopes.includes(u.id))),
   );
+  const lockedWork = user.roles.includes("staff") && !hasHeadScope(user, unit);
+  const needsAssignment = lockedWork && !assignedWorkReady(user, meta);
   function choose(list) {
     const next = Array.from(list);
     if (
@@ -1368,6 +1413,14 @@ function ImportPage() {
     setError("");
   }
   async function save() {
+    if (!subject.trim()) {
+      setError("กรุณากรอกชื่อเรื่อง");
+      return;
+    }
+    if (needsAssignment) {
+      setError("กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนนำเข้าข้อมูล");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -1379,7 +1432,8 @@ function ImportPage() {
           body.append("file", files[i]);
           body.append("purpose", purpose);
           body.append("unit_id", unit);
-          body.append("keywords", keywords);
+          body.append("title", subject.trim());
+          if (work) body.append("work_id", work);
           const result = await api("/files", { method: "POST", body });
           id = result.id;
           completed.current.set(files[i], id);
@@ -1391,7 +1445,12 @@ function ImportPage() {
       if (purpose === "evidence") {
         sessionStorage.setItem(
           "rm-new-evidence",
-          JSON.stringify({ file_ids: ids, unit_id: Number(unit) }),
+          JSON.stringify({
+            file_ids: ids,
+            unit_id: Number(unit),
+            work_id: work ? Number(work) : null,
+            title: subject.trim(),
+          }),
         );
         navigate("activity/new");
       } else {
@@ -1400,7 +1459,10 @@ function ImportPage() {
       }
     } catch (e) {
       setError(
-        e.message + " — ไฟล์ที่สำเร็จถูกเก็บแล้ว กดลองใหม่เพื่อดำเนินการต่อ",
+        e.message +
+          (completed.current.size
+            ? " — ไฟล์ที่สำเร็จถูกเก็บแล้ว กดลองใหม่เพื่อดำเนินการต่อ"
+            : ""),
       );
     } finally {
       setBusy(false);
@@ -1521,25 +1583,73 @@ function ImportPage() {
         ) : (
           <>
             <h2>ตรวจรายละเอียดก่อนนำเข้า</h2>
-            <div className="form">
-              <Field label="หน่วยงาน">
-                <select
-                  value={unit}
-                  onChange={(e) => {
-                    setUnit(e.target.value);
-                    completed.current.clear();
-                  }}
-                  disabled={busy || completed.current.size > 0}
-                >
-                  <UnitOptions units={meta.units} allowed={writableUnits} />
-                </select>
-              </Field>
-              <Field label="คำสำคัญ">
+            <form
+              className="form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                save();
+              }}
+            >
+              {staffOnly(user) ? (
+                <AssignmentFields unitId={user.unit_id} workId={user.work_id} />
+              ) : (
+                <>
+                  <Field label="ฝ่าย/กลุ่มงาน">
+                    <select
+                      value={unit}
+                      onChange={(e) => {
+                        setUnit(e.target.value);
+                        setWork(
+                          Number(e.target.value) === user.unit_id
+                            ? user.work_id || ""
+                            : "",
+                        );
+                        completed.current.clear();
+                      }}
+                      disabled={busy || completed.current.size > 0}
+                    >
+                      <UnitOptions units={meta.units} allowed={writableUnits} />
+                    </select>
+                  </Field>
+                  <Field label="งานที่รับผิดชอบ">
+                    {lockedWork ? (
+                      <input
+                        readOnly
+                        value={
+                          meta.works.find((w) => w.id === user.work_id)?.name ||
+                          "รอผู้ดูแลระบบกำหนดงาน"
+                        }
+                      />
+                    ) : (
+                      <select
+                        value={work}
+                        onChange={(e) => setWork(e.target.value)}
+                        disabled={busy || completed.current.size > 0}
+                      >
+                        <option value="">ยังไม่ระบุงาน</option>
+                        <WorkOptions
+                          works={meta.works}
+                          unitId={unit}
+                          selected={work}
+                        />
+                      </select>
+                    )}
+                  </Field>
+                </>
+              )}
+              {needsAssignment && (
+                <Notice error>
+                  กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนนำเข้าข้อมูล
+                </Notice>
+              )}
+              <Field label="ชื่อเรื่อง *">
                 <input
-                  value={keywords}
-                  onChange={(e) => setKeywords(e.target.value)}
-                  placeholder="คำค้นหาสำหรับเอกสาร"
-                  disabled={busy}
+                  required
+                  maxLength={300}
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="กรอกชื่อเรื่องของเอกสารหรือรายงาน"
+                  disabled={busy || completed.current.size > 0}
                 />
               </Field>
               <div className="file-list">
@@ -1562,6 +1672,7 @@ function ImportPage() {
               </Notice>
               <div className="modal-actions">
                 <Button
+                  type="button"
                   disabled={busy || completed.current.size > 0}
                   onClick={() => setStep(2)}
                 >
@@ -1569,8 +1680,8 @@ function ImportPage() {
                 </Button>
                 <Button
                   primary
-                  disabled={busy || !unit}
-                  onClick={save}
+                  disabled={busy || !unit || needsAssignment || !subject.trim()}
+                  type="submit"
                   icon={Upload}
                 >
                   {busy
@@ -1580,7 +1691,7 @@ function ImportPage() {
                       : "จัดเก็บและตรวจข้อมูล"}
                 </Button>
               </div>
-            </div>
+            </form>
           </>
         )}
       </section>
@@ -1593,7 +1704,7 @@ const blankActivity = (user, extra = {}) => ({
   date: today(),
   unit_id: user.unit_id || user.scopes[0] || "",
   category_id: "",
-  work_id: "",
+  work_id: user.work_id || "",
   area: "",
   workers: "",
   result: "",
@@ -1602,6 +1713,9 @@ const blankActivity = (user, extra = {}) => ({
   file_ids: [],
   inbox_ids: [],
   ...extra,
+  ...(staffOnly(user)
+    ? { unit_id: user.unit_id || "", work_id: user.work_id || "" }
+    : {}),
 });
 function ActivityEditor({ id }) {
   const { user, meta, navigate, notify, canWrite } = useApp();
@@ -1656,6 +1770,12 @@ function ActivityEditor({ id }) {
     };
   }, [id]);
   const editable = fresh ? canWrite : record?.can_edit;
+  const canChangeAssignment =
+    user.roles.includes("head") &&
+    (fresh || hasHeadScope(user, record?.unit_id));
+  const lockedWork =
+    user.roles.includes("staff") && !hasHeadScope(user, form?.unit_id);
+  const needsAssignment = fresh && lockedWork && !assignedWorkReady(user, meta);
   const change = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   async function save(e) {
     e.preventDefault();
@@ -1767,8 +1887,13 @@ function ActivityEditor({ id }) {
         <section className="panel form-panel">
           <h2>ข้อมูลรายการงาน</h2>
           <form className="form" onSubmit={save}>
-            <fieldset disabled={!editable || busy}>
-              <Field label="ชื่องาน *">
+            {needsAssignment && (
+              <Notice error>
+                กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนสร้างรายการ
+              </Notice>
+            )}
+            <fieldset disabled={!editable || busy || needsAssignment}>
+              <Field label="ชื่อเรื่อง *">
                 <input
                   required
                   maxLength={300}
@@ -1785,49 +1910,72 @@ function ActivityEditor({ id }) {
                     required={form.status === "ready"}
                   />
                 </Field>
-                <Field label="ฝ่าย/กลุ่มงาน *">
-                  <select
-                    value={form.unit_id}
-                    required
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        unit_id: Number(e.target.value),
-                        work_id: "",
-                      }))
-                    }
-                  >
-                    <option value="">เลือกฝ่าย/กลุ่มงาน</option>
-                    <UnitOptions
-                      units={meta.units}
-                      allowed={meta.units.filter(
-                        (u) =>
-                          u.id === form.unit_id ||
-                          (u.active &&
-                            (!editable ||
-                              (user.roles.includes("staff") &&
-                                u.id === user.unit_id) ||
-                              (user.roles.includes("head") &&
-                                user.scopes.includes(u.id)))),
-                      )}
-                    />
-                  </select>
-                </Field>
+                {canChangeAssignment && (
+                  <Field label="ฝ่าย/กลุ่มงาน *">
+                    <select
+                      value={form.unit_id}
+                      required
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          unit_id: Number(e.target.value),
+                          work_id:
+                            Number(e.target.value) === user.unit_id
+                              ? user.work_id || ""
+                              : "",
+                        }))
+                      }
+                    >
+                      <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+                      <UnitOptions
+                        units={meta.units}
+                        allowed={meta.units.filter(
+                          (u) =>
+                            u.id === form.unit_id ||
+                            (u.active &&
+                              (!editable ||
+                                (user.roles.includes("staff") &&
+                                  u.id === user.unit_id) ||
+                                (user.roles.includes("head") &&
+                                  user.scopes.includes(u.id)))),
+                        )}
+                      />
+                    </select>
+                  </Field>
+                )}
               </div>
-              <Field label="งานตามฝ่าย/กลุ่มงาน">
-                <select
-                  value={form.work_id || ""}
-                  onChange={(e) => change("work_id", e.target.value)}
-                  disabled={!form.unit_id}
-                >
-                  <option value="">ยังไม่ระบุงาน</option>
-                  <WorkOptions
-                    works={meta.works}
-                    unitId={form.unit_id}
-                    selected={form.work_id}
-                  />
-                </select>
-              </Field>
+              {!canChangeAssignment ? (
+                <AssignmentFields
+                  unitId={form.unit_id}
+                  workId={form.work_id}
+                  historical={!fresh}
+                />
+              ) : (
+                <Field label="งานตามฝ่าย/กลุ่มงาน">
+                  {lockedWork ? (
+                    <input
+                      readOnly
+                      value={
+                        meta.works.find((w) => w.id === user.work_id)?.name ||
+                        "รอผู้ดูแลระบบกำหนดงาน"
+                      }
+                    />
+                  ) : (
+                    <select
+                      value={form.work_id || ""}
+                      onChange={(e) => change("work_id", e.target.value)}
+                      disabled={!form.unit_id}
+                    >
+                      <option value="">ยังไม่ระบุงาน</option>
+                      <WorkOptions
+                        works={meta.works}
+                        unitId={form.unit_id}
+                        selected={form.work_id}
+                      />
+                    </select>
+                  )}
+                </Field>
+              )}
               <div className="form-row">
                 <div className="category-control">
                   <Field label="ประเภทงาน">
@@ -2712,6 +2860,7 @@ function UsersAdmin() {
                 username: "",
                 name: "",
                 unit_id: "",
+                work_id: "",
                 roles: ["staff"],
                 scopes: [],
                 active: true,
@@ -2729,7 +2878,7 @@ function UsersAdmin() {
                 <thead>
                   <tr>
                     <th>ผู้ใช้งาน</th>
-                    <th>สังกัด</th>
+                    <th>ฝ่าย / งานที่รับผิดชอบ</th>
                     <th>บทบาท</th>
                     <th>สถานะ</th>
                     <th />
@@ -2745,7 +2894,16 @@ function UsersAdmin() {
                           {u.id === user.id ? " · คุณ" : ""}
                         </small>
                       </td>
-                      <td>{u.unit_name || "ส่วนกลาง"}</td>
+                      <td>
+                        {u.unit_name || "ส่วนกลาง"}
+                        {u.roles.includes("staff") && (
+                          <small
+                            className={!u.work_id ? "assignment-pending" : ""}
+                          >
+                            {u.work_name || "รอกำหนดงานโดยผู้ดูแลระบบ"}
+                          </small>
+                        )}
+                      </td>
                       <td>
                         <div className="role-list">
                           {u.roles.map((r) => (
@@ -2809,6 +2967,10 @@ function UserForm({ initial, onClose, onSaved }) {
       const payload = {
         ...form,
         unit_id: form.unit_id ? Number(form.unit_id) : null,
+        work_id:
+          form.roles.includes("staff") && form.work_id
+            ? Number(form.work_id)
+            : null,
         line_user_id: form.line_user_id || null,
         password: form.password || undefined,
       };
@@ -2868,7 +3030,10 @@ function UserForm({ initial, onClose, onSaved }) {
         <Field label="สังกัด">
           <select
             value={form.unit_id || ""}
-            onChange={(e) => set("unit_id", e.target.value)}
+            required={form.roles.includes("staff")}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, unit_id: e.target.value, work_id: "" }))
+            }
           >
             <option value="">ส่วนกลาง / ไม่ระบุ</option>
             <UnitOptions
@@ -2879,6 +3044,29 @@ function UserForm({ initial, onClose, onSaved }) {
             />
           </select>
         </Field>
+        {form.roles.includes("staff") && (
+          <>
+            <Field label="งานที่รับผิดชอบ *">
+              <select
+                required
+                disabled={!form.unit_id}
+                value={form.work_id || ""}
+                onChange={(e) => set("work_id", e.target.value)}
+              >
+                <option value="">เลือกงานในฝ่ายที่สังกัด</option>
+                <WorkOptions
+                  works={meta.works.filter((w) => w.active)}
+                  unitId={form.unit_id}
+                  selected={form.work_id}
+                />
+              </select>
+            </Field>
+            <p className="muted">
+              พนักงานแต่ละคนสังกัดได้ 1 ฝ่าย และรับผิดชอบ 1 งาน
+              โดยผู้ดูแลระบบเป็นผู้กำหนด
+            </p>
+          </>
+        )}
         <div>
           <span className="field-label">บทบาท *</span>
           <div className="checkbox-grid">

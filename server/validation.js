@@ -64,6 +64,7 @@ export const userSchema = z
     name: z.string().trim().min(1).max(200),
     password: z.string().min(12).max(128).optional(),
     unit_id: id.nullable(),
+    work_id: id.nullable().default(null),
     roles: z
       .array(z.enum(Object.keys(ROLES)))
       .min(1)
@@ -89,6 +90,12 @@ export const userSchema = z
         code: "custom",
         path: ["unit_id"],
         message: "เจ้าหน้าที่ต้องมีสังกัด",
+      });
+    if (v.roles.includes("staff") && !v.work_id)
+      c.addIssue({
+        code: "custom",
+        path: ["work_id"],
+        message: "กรุณากำหนดงานประจำให้เจ้าหน้าที่ 1 งานในฝ่ายที่สังกัด",
       });
   });
 export const newsSchema = z.object({

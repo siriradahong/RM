@@ -2296,3 +2296,21 @@ footer {
 .form-row:has(.category-control) {
   align-items: start;
 }
+
+.assignment-fields {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fbfd;
+}
+.assignment-fields input[readonly] {
+  background: #f0f5f9;
+  color: var(--navy);
+}
+.assignment-fields > small {
+  display: block;
+  margin-top: 10px;
+}
+.assignment-pending {
+  color: #a36c05;
+}

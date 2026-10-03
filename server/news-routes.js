@@ -3,9 +3,9 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileTypeFromBuffer } from "file-type";
-import { httpError } from "./security.js";
+import { httpError, requireStaffAssignment } from "./security.js";
 import { newsSchema } from "./validation.js";
-import { transaction, writeAudit } from "./db.js";
+import { publicUser, transaction, writeAudit } from "./db.js";
 
 function newsRow(row) {
   return row ? { ...row, image_ids: JSON.parse(row.image_ids) } : null;
@@ -283,6 +283,45 @@ export async function downloadLineMedia(db, dataDir, row, user) {
     !/^\d+$/.test(row.message_id)
   )
     throw httpError(400, "ข้อความนี้ไม่มีไฟล์ที่ดาวน์โหลดได้");
+  function currentAssignment() {
+    const owner = publicUser(
+      db
+        .prepare("SELECT * FROM users WHERE id=? AND active=1")
+        .get(row.owner_id),
+    );
+    if (!owner?.unit_id)
+      throw httpError(
+        400,
+        "กรุณาให้ผู้ดูแลระบบกำหนดฝ่ายและงานให้ผู้รายงานก่อน",
+      );
+    if (owner.roles.includes("staff")) requireStaffAssignment(db, owner);
+    else if (
+      !db
+        .prepare(
+          "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+        )
+        .get(owner.unit_id) ||
+      (owner.work_id &&
+        !db
+          .prepare("SELECT id FROM works WHERE id=? AND unit_id=? AND active=1")
+          .get(owner.work_id, owner.unit_id))
+    )
+      throw httpError(
+        400,
+        "ฝ่ายหรืองานของผู้รายงานไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
+      );
+    const report = row.activity_id
+      ? db
+          .prepare("SELECT unit_id,work_id FROM activities WHERE id=?")
+          .get(row.activity_id)
+      : null;
+    return {
+      owner,
+      unit_id: report?.unit_id ?? owner.unit_id,
+      work_id: report ? report.work_id : owner.work_id,
+    };
+  }
+  currentAssignment();
   if (!process.env.LINE_CHANNEL_ACCESS_TOKEN)
     throw httpError(503, "ยังไม่ได้ตั้งค่า LINE access token");
   const response = await fetch(
@@ -318,9 +357,6 @@ export async function downloadLineMedia(db, dataDir, row, user) {
     ].includes(type.mime)
   )
     throw httpError(415, "ไม่รองรับไฟล์นี้");
-  const owner = db.prepare("SELECT * FROM users WHERE id=?").get(row.owner_id);
-  if (!owner?.unit_id)
-    throw httpError(400, "กรุณาผูกผู้รายงานกับบัญชีและหน่วยงานก่อน");
   const name = `${randomUUID()}.${type.ext}`;
   await writeFile(resolve(dataDir, "uploads", name), buffer, { mode: 0o600 });
   try {
@@ -329,10 +365,13 @@ export async function downloadLineMedia(db, dataDir, row, user) {
         .prepare("SELECT file_id FROM inbox WHERE id=?")
         .get(row.id);
       if (current.file_id) throw httpError(409, "มีผู้ดาวน์โหลดไฟล์นี้แล้ว");
+      // Recheck after the network request in case an administrator reassigned
+      // or disabled the reporter while LINE was transferring the file.
+      const assignment = currentAssignment();
       const id = Number(
         db
           .prepare(
-            "INSERT INTO files(original_name,storage_name,mime,size,title,purpose,unit_id,owner_id,activity_id) VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO files(original_name,storage_name,mime,size,title,purpose,unit_id,work_id,owner_id,activity_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
           )
           .run(
             row.kind === "file"
@@ -343,8 +382,9 @@ export async function downloadLineMedia(db, dataDir, row, user) {
             size,
             row.text || "รูปภาพจาก LINE",
             "evidence",
-            owner.unit_id,
-            owner.id,
+            assignment.unit_id,
+            assignment.work_id,
+            assignment.owner.id,
             row.activity_id,
           ).lastInsertRowid,
       );

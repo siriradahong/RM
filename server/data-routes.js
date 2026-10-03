@@ -4,7 +4,13 @@ import { writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileTypeFromBuffer } from "file-type";
 import { activitySchema } from "./validation.js";
-import { canEdit, canCreate, httpError } from "./security.js";
+import {
+  canEdit,
+  canCreate,
+  createWorkAssignment,
+  isHeadForUnit,
+  httpError,
+} from "./security.js";
 import { transaction, writeAudit } from "./db.js";
 import { downloadLineMedia } from "./news-routes.js";
 
@@ -72,7 +78,7 @@ export function registerDataRoutes(app, db, dataDir) {
   app.post("/api/inbox/:id/download", async (req, res) => {
     const row = db
       .prepare(
-        "SELECT i.*,u.unit_id FROM inbox i LEFT JOIN users u ON u.id=i.owner_id WHERE i.id=?",
+        "SELECT i.*,COALESCE(a.unit_id,u.unit_id) AS unit_id,CASE WHEN a.id IS NOT NULL THEN a.work_id ELSE u.work_id END AS work_id FROM inbox i LEFT JOIN users u ON u.id=i.owner_id LEFT JOIN activities a ON a.id=i.activity_id WHERE i.id=?",
       )
       .get(Number(req.params.id));
     if (!row) throw httpError(404, "ไม่พบข้อความ");
@@ -135,6 +141,8 @@ export function registerDataRoutes(app, db, dataDir) {
             .get(Number(req.params.id))
         : null;
     if (req.params.id && !record) throw httpError(404, "ไม่พบรายการงาน");
+    if (record && !Object.hasOwn(req.body, "work_id"))
+      input.work_id = record.work_id;
     if (
       record ? !canEdit(req.user, record) : !canCreate(req.user, input.unit_id)
     )
@@ -145,14 +153,30 @@ export function registerDataRoutes(app, db, dataDir) {
       !canCreate(req.user, input.unit_id)
     )
       throw httpError(403, "ไม่มีสิทธิ์ย้ายงานไปหน่วยงานนี้");
+    if (record && !isHeadForUnit(req.user, record.unit_id)) {
+      // Owners may correct historical reports after reassignment, but cannot
+      // rewrite the original organization selected for those reports.
+      if (input.unit_id !== record.unit_id || input.work_id !== record.work_id)
+        throw httpError(
+          403,
+          "พนักงานไม่สามารถเปลี่ยนฝ่ายหรืองานประจำของรายการได้ กรุณาติดต่อผู้ดูแลระบบ",
+        );
+    } else if (!record || input.unit_id !== record.unit_id) {
+      input.work_id = createWorkAssignment(
+        db,
+        req.user,
+        input.unit_id,
+        input.work_id,
+      );
+    }
     if (record && input.version !== record.version)
       throw httpError(409, "มีผู้แก้ไขรายการนี้แล้ว กรุณาโหลดข้อมูลใหม่");
     if (
       !db
         .prepare(
-          "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+          "SELECT id FROM units WHERE id=? AND (active=1 OR id=?) AND kind!='section'",
         )
-        .get(input.unit_id)
+        .get(input.unit_id, record?.unit_id || null)
     )
       throw httpError(400, "หน่วยงานไม่พร้อมใช้งาน");
     if (
@@ -347,8 +371,30 @@ export function registerDataRoutes(app, db, dataDir) {
         purpose = req.body.purpose;
       if (!canCreate(req.user, unit))
         throw httpError(403, "ไม่มีสิทธิ์นำเข้าไฟล์ในหน่วยงานนี้");
+      const requestedWork =
+          req.body.work_id == null || req.body.work_id === ""
+            ? null
+            : Number(req.body.work_id),
+        work = createWorkAssignment(db, req.user, unit, requestedWork);
+      if (
+        work != null &&
+        (!Number.isSafeInteger(work) ||
+          !db
+            .prepare(
+              "SELECT id FROM works WHERE id=? AND unit_id=? AND active=1",
+            )
+            .get(work, unit))
+      )
+        throw httpError(400, "กรุณาเลือกงานที่เปิดใช้งานในฝ่ายที่เลือก");
       if (!["archive", "evidence"].includes(purpose))
         throw httpError(400, "กรุณาระบุวัตถุประสงค์");
+      if (
+        req.body.title !== undefined &&
+        (typeof req.body.title !== "string" ||
+          !req.body.title.trim() ||
+          req.body.title.trim().length > 300)
+      )
+        throw httpError(400, "กรุณาระบุชื่อเรื่อง 1–300 ตัวอักษร");
       if (
         !db
           .prepare(
@@ -390,7 +436,7 @@ export function registerDataRoutes(app, db, dataDir) {
           const id = Number(
             db
               .prepare(
-                "INSERT INTO files(original_name,storage_name,mime,size,title,keywords,purpose,unit_id,owner_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO files(original_name,storage_name,mime,size,title,keywords,purpose,unit_id,work_id,owner_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
               )
               .run(
                 original,
@@ -401,6 +447,7 @@ export function registerDataRoutes(app, db, dataDir) {
                 String(req.body.keywords || "").slice(0, 1000),
                 purpose,
                 unit,
+                work,
                 req.user.id,
               ).lastInsertRowid,
           );
@@ -423,6 +470,7 @@ export function registerDataRoutes(app, db, dataDir) {
       params = [];
     for (const [q, col] of [
       ["unit", "f.unit_id"],
+      ["work", "f.work_id"],
       ["purpose", "f.purpose"],
     ])
       if (req.query[q]) {
@@ -449,7 +497,7 @@ export function registerDataRoutes(app, db, dataDir) {
       limit,
       items: db
         .prepare(
-          `SELECT f.id,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.activity_id,f.unit_id,f.owner_id,f.created_at,u.name AS unit_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
+          `SELECT f.id,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.activity_id,f.unit_id,f.work_id,f.owner_id,f.created_at,u.name AS unit_name,w.name AS work_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id LEFT JOIN works w ON w.id=f.work_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
         )
         .all(...params, limit, (page - 1) * limit),
     });
@@ -470,7 +518,7 @@ export function registerDataRoutes(app, db, dataDir) {
     const { page, limit } = pagination(req);
     const rows = db
       .prepare(
-        "SELECT i.*,u.name AS owner_name,u.unit_id FROM inbox i LEFT JOIN users u ON u.id=i.owner_id WHERE i.activity_id IS NULL ORDER BY i.id DESC",
+        "SELECT i.*,u.name AS owner_name,u.unit_id,u.work_id FROM inbox i LEFT JOIN users u ON u.id=i.owner_id WHERE i.activity_id IS NULL ORDER BY i.id DESC",
       )
       .all();
     res.json({

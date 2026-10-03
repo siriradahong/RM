@@ -19,7 +19,8 @@ describe(
       accounts = {},
       activityId,
       fileId,
-      newsId;
+      newsId,
+      assignedWorks = {};
     const password = "Test-password-2026!";
     async function request(
       path,
@@ -64,6 +65,21 @@ describe(
       };
       return r;
     }
+    function uploadForm(unit = 1, work, title = "ชื่อเรื่องจากหน้านำเข้า") {
+      const form = new FormData();
+      form.append(
+        "file",
+        new Blob(["%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"], {
+          type: "application/pdf",
+        }),
+        "assignment.pdf",
+      );
+      form.append("unit_id", String(unit));
+      if (work !== undefined) form.append("work_id", String(work));
+      form.append("purpose", "evidence");
+      form.append("title", title);
+      return form;
+    }
     const payload = () => ({
       title: "ประชุมเครือข่าย อสม.",
       date: "2026-09-18",
@@ -82,6 +98,10 @@ describe(
       dir = await mkdtemp(join(tmpdir(), "rm-api-"));
       app = createApp({ dataDir: dir, disableRateLimit: true });
       const hash = await hashPassword(password);
+      for (const unit of [1, 2])
+        assignedWorks[unit] = app.locals.db
+          .prepare("SELECT id FROM works WHERE unit_id=? ORDER BY id LIMIT 1")
+          .get(unit).id;
       for (const [username, roles, unit, scopes] of [
         ["staff", ["staff"], 1, []],
         ["peer", ["staff"], 1, []],
@@ -91,16 +111,21 @@ describe(
         ["pr", ["pr"], 1, []],
         ["executive", ["executive"], null, []],
         ["multi", ["staff", "pr"], 1, []],
+        ["hybrid", ["staff", "head"], 1, [2]],
+        ["legacy", ["staff"], 1, []],
       ])
         app.locals.db
           .prepare(
-            "INSERT INTO users(username,name,password_hash,unit_id,roles,scopes) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO users(username,name,password_hash,unit_id,work_id,roles,scopes) VALUES(?,?,?,?,?,?,?)",
           )
           .run(
             username,
             username,
             hash,
             unit,
+            roles.includes("staff") && username !== "legacy"
+              ? assignedWorks[unit]
+              : null,
             JSON.stringify(roles),
             JSON.stringify(scopes),
           );
@@ -117,6 +142,8 @@ describe(
         "pr",
         "executive",
         "multi",
+        "hybrid",
+        "legacy",
       ])
         await login(u);
     });
@@ -214,12 +241,13 @@ describe(
     });
     it("saves work under its own division, rejects mismatches, and retains inactive historical assignments", async () => {
       const { json: meta } = await request("/meta");
-      const work = meta.works.find((w) => w.unit_id === 1);
+      const work = meta.works.find((w) => w.id === assignedWorks[1]);
       const wrong = meta.works.find((w) => w.unit_id === 2);
       for (const work_id of [wrong.id, 999999])
         assert.equal(
           (
             await request("/activities", {
+              as: "head",
               method: "POST",
               body: { ...payload(), work_id },
             })
@@ -254,12 +282,21 @@ describe(
       assert.equal(
         (
           await request("/activities", {
+            as: "head",
             method: "POST",
             body: { ...payload(), work_id: work.id },
           })
         ).status,
         400,
       );
+      for (const [path, body] of [
+        ["/activities", payload()],
+        ["/files", uploadForm()],
+      ]) {
+        const denied = await request(path, { method: "POST", body });
+        assert.equal(denied.status, 403);
+        assert.match(JSON.stringify(denied.json), /ผู้ดูแลระบบ/);
+      }
       assert.equal(
         (
           await request("/activities/" + record.id, {
@@ -293,7 +330,7 @@ describe(
     });
     it("validates work parents and limits organization changes to admins", async () => {
       const { json: meta } = await request("/meta");
-      const work = meta.works.find((w) => w.unit_id === 1);
+      const work = meta.works.find((w) => w.id === assignedWorks[1]);
       assert.equal(
         (
           await request("/admin/works", {
@@ -787,6 +824,304 @@ describe(
       const published = (await request("/news/" + newsId)).json;
       assert.equal(published.area, original.area);
       assert.equal(published.date, original.date);
+    });
+    it("requires admins to assign exactly one active work in the staff member's division", async () => {
+      const account = {
+        username: "new_assignment",
+        name: "บัญชีกำหนดงาน",
+        password,
+        roles: ["staff"],
+        unit_id: 1,
+      };
+      for (const work_id of [
+        undefined,
+        null,
+        [],
+        [assignedWorks[1]],
+        assignedWorks[2],
+        999999,
+      ]) {
+        const rejected = await request("/admin/users", {
+          as: "admin",
+          method: "POST",
+          body: { ...account, work_id },
+        });
+        assert.equal(rejected.status, 400, JSON.stringify(rejected.json));
+      }
+      const inactive = await request("/admin/works", {
+        as: "admin",
+        method: "POST",
+        body: { name: "งานที่ปิดรับสมาชิก", unit_id: 1, active: false },
+      });
+      assert.equal(inactive.status, 201);
+      assert.equal(
+        (
+          await request("/admin/users", {
+            as: "admin",
+            method: "POST",
+            body: { ...account, work_id: inactive.json.id },
+          })
+        ).status,
+        400,
+      );
+      const created = await request("/admin/users", {
+        as: "admin",
+        method: "POST",
+        body: { ...account, work_id: assignedWorks[1] },
+      });
+      assert.equal(created.status, 201, JSON.stringify(created.json));
+      assert.equal(created.json.unit_id, 1);
+      assert.equal(created.json.work_id, assignedWorks[1]);
+      assert.equal(created.json.password_hash, undefined);
+      const signedIn = await login(account.username);
+      assert.equal(signedIn.json.user.work_id, assignedWorks[1]);
+      for (const work_id of [null, assignedWorks[2], inactive.json.id])
+        assert.equal(
+          (
+            await request("/admin/users/" + created.json.id, {
+              as: "admin",
+              method: "PUT",
+              body: { ...created.json, work_id },
+            })
+          ).status,
+          400,
+        );
+      assert.equal(
+        (
+          await request("/admin/users/" + created.json.id, {
+            as: account.username,
+            method: "PUT",
+            body: { ...created.json, unit_id: 2, work_id: assignedWorks[2] },
+          })
+        ).status,
+        403,
+      );
+      const transferred = await request("/admin/users/" + created.json.id, {
+        as: "admin",
+        method: "PUT",
+        body: { ...created.json, unit_id: 2, work_id: assignedWorks[2] },
+      });
+      assert.equal(transferred.status, 200);
+      assert.equal(
+        (await request("/auth/me", { as: account.username })).status,
+        401,
+      );
+      assert.equal(
+        (await login(account.username)).json.user.work_id,
+        assignedWorks[2],
+      );
+    });
+    it("defaults staff reports and uploads to the admin assignment and rejects tampering", async () => {
+      const otherWork = app.locals.db
+        .prepare(
+          "SELECT id FROM works WHERE unit_id=1 AND id!=? AND active=1 LIMIT 1",
+        )
+        .get(assignedWorks[1]).id;
+      for (const assignment of [
+        { unit_id: 1, work_id: otherWork },
+        { unit_id: 2, work_id: assignedWorks[2] },
+      ]) {
+        assert.equal(
+          (
+            await request("/activities", {
+              method: "POST",
+              body: { ...payload(), ...assignment },
+            })
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await request("/files", {
+              method: "POST",
+              body: uploadForm(assignment.unit_id, assignment.work_id),
+            })
+          ).status,
+          403,
+        );
+      }
+      const created = await request("/activities", {
+        method: "POST",
+        body: payload(),
+      });
+      assert.equal(created.status, 201);
+      const record = (await request("/activities/" + created.json.id)).json;
+      assert.equal(record.unit_id, 1);
+      assert.equal(record.work_id, assignedWorks[1]);
+      for (const assignment of [
+        { unit_id: 1, work_id: otherWork },
+        { unit_id: 1, work_id: null },
+        { unit_id: 2, work_id: assignedWorks[2] },
+      ])
+        assert.equal(
+          (
+            await request("/activities/" + record.id, {
+              method: "PUT",
+              body: { ...record, ...assignment },
+            })
+          ).status,
+          403,
+        );
+      const uploaded = await request("/files", {
+        method: "POST",
+        body: uploadForm(),
+      });
+      assert.equal(uploaded.status, 201);
+      assert.equal(uploaded.json.unit_id, 1);
+      assert.equal(uploaded.json.work_id, assignedWorks[1]);
+      assert.equal(uploaded.json.title, "ชื่อเรื่องจากหน้านำเข้า");
+      const found = await request(
+        "/files?q=" + encodeURIComponent("ชื่อเรื่องจากหน้านำเข้า"),
+      );
+      assert.ok(found.json.items.some((f) => f.id === uploaded.json.id));
+    });
+    it("asks legacy unassigned staff to contact an admin before creating reports or uploading", async () => {
+      const me = await request("/auth/me", { as: "legacy" });
+      assert.equal(me.status, 200);
+      assert.equal(me.json.user.work_id, null);
+      for (const [path, body] of [
+        ["/activities", payload()],
+        ["/activities", { ...payload(), work_id: assignedWorks[1] }],
+        ["/files", uploadForm()],
+      ]) {
+        const denied = await request(path, {
+          as: "legacy",
+          method: "POST",
+          body,
+        });
+        assert.equal(denied.status, 403);
+        assert.match(JSON.stringify(denied.json), /ผู้ดูแลระบบ/);
+      }
+      const assigned = await request("/admin/users/" + me.json.user.id, {
+        as: "admin",
+        method: "PUT",
+        body: { ...me.json.user, work_id: assignedWorks[1] },
+      });
+      assert.equal(assigned.status, 200);
+      assert.equal((await request("/auth/me", { as: "legacy" })).status, 401);
+      await login("legacy");
+      assert.equal(
+        (
+          await request("/activities", {
+            as: "legacy",
+            method: "POST",
+            body: payload(),
+          })
+        ).status,
+        201,
+      );
+    });
+    it("retains a staff owner's historical assignment after an admin transfers them", async () => {
+      const created = await request("/activities", {
+        as: "legacy",
+        method: "POST",
+        body: payload(),
+      });
+      assert.equal(created.status, 201);
+      const record = (await request("/activities/" + created.json.id)).json;
+      const user = (await request("/auth/me", { as: "legacy" })).json.user;
+      assert.equal(
+        (
+          await request("/admin/users/" + user.id, {
+            as: "admin",
+            method: "PUT",
+            body: { ...user, unit_id: 2, work_id: assignedWorks[2] },
+          })
+        ).status,
+        200,
+      );
+      await login("legacy");
+      const { work_id, ...withoutWork } = record;
+      const edited = await request("/activities/" + record.id, {
+        as: "legacy",
+        method: "PUT",
+        body: { ...withoutWork, title: "แก้เรื่องเก่าหลังย้ายฝ่าย" },
+      });
+      assert.equal(edited.status, 200, JSON.stringify(edited.json));
+      const saved = (await request("/activities/" + record.id)).json;
+      assert.equal(saved.unit_id, 1);
+      assert.equal(saved.work_id, work_id);
+      assert.equal(saved.can_edit, false);
+      assert.equal(
+        (await request("/activities/" + record.id, { as: "legacy" })).json
+          .can_edit,
+        true,
+      );
+      assert.equal(
+        (
+          await request("/activities/" + record.id, {
+            as: "legacy",
+            method: "PUT",
+            body: { ...saved, unit_id: 2, work_id: assignedWorks[2] },
+          })
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request("/activities", {
+            as: "legacy",
+            method: "POST",
+            body: payload(),
+          })
+        ).status,
+        403,
+      );
+      const next = await request("/activities", {
+        as: "legacy",
+        method: "POST",
+        body: { ...payload(), unit_id: 2 },
+      });
+      assert.equal(next.status, 201);
+      assert.equal(
+        (await request("/activities/" + next.json.id)).json.work_id,
+        assignedWorks[2],
+      );
+    });
+    it("keeps head scope authority additive for staff with both roles", async () => {
+      const targetWork = app.locals.db
+        .prepare(
+          "SELECT id FROM works WHERE unit_id=2 AND id!=? AND active=1 LIMIT 1",
+        )
+        .get(assignedWorks[2]).id;
+      const created = await request("/activities", {
+        as: "hybrid",
+        method: "POST",
+        body: { ...payload(), unit_id: 2, work_id: targetWork },
+      });
+      assert.equal(created.status, 201, JSON.stringify(created.json));
+      assert.equal(
+        (await request("/activities/" + created.json.id)).json.work_id,
+        targetWork,
+      );
+      const uploaded = await request("/files", {
+        as: "hybrid",
+        method: "POST",
+        body: uploadForm(2, targetWork),
+      });
+      assert.equal(uploaded.status, 201);
+      assert.equal(uploaded.json.unit_id, 2);
+      assert.equal(uploaded.json.work_id, targetWork);
+      const own = await request("/activities", {
+        as: "hybrid",
+        method: "POST",
+        body: payload(),
+      });
+      assert.equal(own.status, 201);
+      assert.equal(
+        (await request("/activities/" + own.json.id)).json.work_id,
+        assignedWorks[1],
+      );
+      assert.equal(
+        (
+          await request("/activities", {
+            as: "hybrid",
+            method: "POST",
+            body: { ...payload(), unit_id: 3 },
+          })
+        ).status,
+        403,
+      );
     });
     it("logout revokes the session", async () => {
       assert.equal(

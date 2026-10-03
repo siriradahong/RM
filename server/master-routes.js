@@ -67,12 +67,18 @@ export function registerMasterRoutes(app, db) {
             .prepare("SELECT id FROM activities WHERE work_id=? LIMIT 1")
             .get(old.id) ||
             db
+              .prepare("SELECT id FROM users WHERE work_id=? LIMIT 1")
+              .get(old.id) ||
+            db
+              .prepare("SELECT id FROM files WHERE work_id=? LIMIT 1")
+              .get(old.id) ||
+            db
               .prepare("SELECT id FROM works WHERE parent_id=? LIMIT 1")
               .get(old.id))
         )
           throw httpError(
             400,
-            "งานนี้มีรายงานหรืองานย่อยอ้างอิงแล้ว จึงไม่สามารถย้ายฝ่ายได้",
+            "งานนี้มีผู้ใช้งาน รายงาน ไฟล์ หรืองานย่อยอ้างอิงแล้ว จึงไม่สามารถย้ายฝ่ายได้",
           );
         let parentId = input.parent_id;
         const seen = new Set([old?.id]);

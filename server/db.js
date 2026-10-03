@@ -65,6 +65,19 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
   ) {
     transaction(db, () => migrateOrganization(db));
   }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=4").get()
+  ) {
+    // An administrator must assign legacy accounts; do not invent assignments
+    // or rewrite the department/work recorded on historical reports and files.
+    transaction(db, () => {
+      db.exec(`ALTER TABLE users ADD COLUMN work_id INTEGER REFERENCES works(id);
+        ALTER TABLE files ADD COLUMN work_id INTEGER REFERENCES works(id);
+        CREATE INDEX users_work ON users(work_id);
+        CREATE INDEX files_work ON files(work_id);
+        INSERT INTO schema_migrations(version) VALUES(4);`);
+    });
+  }
   return { db, dataDir };
 }
 export function transaction(db, fn) {

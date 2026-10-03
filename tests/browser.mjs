@@ -26,6 +26,12 @@ app.locals.db
     JSON.stringify(["admin", "staff", "head", "executive", "pr"]),
     "[1,2]",
   );
+const assignedWork = app.locals.db
+  .prepare("SELECT id FROM works WHERE unit_id=1 AND name='งานสาธารณสุขชุมชน'")
+  .get().id;
+app.locals.db
+  .prepare("UPDATE users SET work_id=? WHERE username=?")
+  .run(assignedWork, "browseradmin");
 let browser, server;
 try {
   server = await new Promise((resolve, reject) => {
@@ -81,6 +87,26 @@ try {
     .getByLabel("รหัสผ่านอย่างน้อย 12 ตัวอักษร *", { exact: true })
     .fill("New-staff-password!");
   await page.getByLabel("สังกัด", { exact: true }).selectOption("1");
+  await page
+    .getByLabel("งานที่รับผิดชอบ *", { exact: true })
+    .selectOption(String(assignedWork));
+  await page.getByLabel("สังกัด", { exact: true }).selectOption("2");
+  assert.equal(
+    await page.getByLabel("งานที่รับผิดชอบ *", { exact: true }).inputValue(),
+    "",
+  );
+  assert.equal(
+    await page
+      .getByLabel("งานที่รับผิดชอบ *", { exact: true })
+      .locator("option")
+      .filter({ hasText: "งานสาธารณสุขชุมชน" })
+      .count(),
+    0,
+  );
+  await page.getByLabel("สังกัด", { exact: true }).selectOption("1");
+  await page
+    .getByLabel("งานที่รับผิดชอบ *", { exact: true })
+    .selectOption(String(assignedWork));
   await page.getByRole("button", { name: "บันทึกบัญชี", exact: true }).click();
   await page.getByText("staff.real", { exact: true }).waitFor();
   await page.screenshot({
@@ -99,14 +125,18 @@ try {
     .click();
   await page.getByRole("button", { name: "ถัดไป", exact: true }).click();
   await page
+    .getByLabel("ชื่อเรื่อง *", { exact: true })
+    .fill("ประชุมเครือข่าย อสม.");
+  await page
     .getByRole("button", { name: "จัดเก็บและตรวจข้อมูล", exact: true })
     .click();
   await page
     .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
     .waitFor();
-  await page
-    .getByLabel("ชื่องาน *", { exact: true })
-    .fill("ประชุมเครือข่าย อสม.");
+  assert.equal(
+    await page.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
+    "ประชุมเครือข่าย อสม.",
+  );
   await page
     .getByLabel("วันที่ปฏิบัติงาน", { exact: true })
     .fill(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" }));
@@ -123,7 +153,7 @@ try {
   );
   await workSelect.selectOption({ label: "งานป้องกันโรคติดต่อ" });
   await page.getByLabel("ฝ่าย/กลุ่มงาน *", { exact: true }).selectOption("1");
-  await workSelect.selectOption({ label: "งานสาธารณสุขชุมชน" });
+  assert.equal(await workSelect.inputValue(), String(assignedWork));
   await page
     .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
     .click();
@@ -142,7 +172,7 @@ try {
     "ลงพื้นที่ชุมชน",
   );
   assert.equal(
-    await page.getByLabel("ชื่องาน *", { exact: true }).inputValue(),
+    await page.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     "ประชุมเครือข่าย อสม.",
   );
   await page
@@ -325,6 +355,124 @@ try {
   await page
     .getByRole("heading", { name: "รายละเอียดและตรวจแก้ข้อมูล", exact: true })
     .waitFor();
+  // A real staff session receives its assignment from the administrator, never a selector.
+  const staffContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    reducedMotion: "reduce",
+  });
+  const staff = await staffContext.newPage();
+  staff.setDefaultTimeout(12000);
+  staff.on("pageerror", (e) => errors.push(e.message));
+  await staff.goto(origin);
+  await staff.getByLabel("ชื่อผู้ใช้", { exact: true }).fill("staff.real");
+  await staff
+    .getByLabel("รหัสผ่าน", { exact: true })
+    .fill("New-staff-password!");
+  await staff.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await staff
+    .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
+    .waitFor();
+  await staff.goto(origin + "/#import");
+  await staff
+    .locator("input[type=file]")
+    .setInputFiles(
+      ["first.pdf", "second.pdf"].map((name) => ({
+        name,
+        mimeType: "application/pdf",
+        buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+      })),
+    );
+  await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
+  await staff
+    .getByRole("button", { name: /จัดข้อมูลเพื่อนำไปสรุปผลงาน/ })
+    .click();
+  await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
+  assert.equal(
+    await staff.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).inputValue(),
+    "ฝ่ายส่งเสริมสุขภาพ",
+  );
+  assert.equal(
+    await staff.getByLabel("งานที่รับผิดชอบ", { exact: true }).inputValue(),
+    "งานสาธารณสุขชุมชน",
+  );
+  assert.equal(
+    await staff
+      .getByLabel("งานที่รับผิดชอบ", { exact: true })
+      .getAttribute("readonly"),
+    "",
+  );
+  assert.equal(await staff.getByLabel("คำสำคัญ", { exact: true }).count(), 0);
+  await staff
+    .getByLabel("ชื่อเรื่อง *", { exact: true })
+    .fill("เยี่ยมบ้านผู้สูงอายุประจำเดือน");
+  assert.equal(
+    await staff.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await staff.screenshot({
+    path: "test-results/staff-import-mobile.png",
+    fullPage: true,
+  });
+  await staff
+    .getByRole("button", { name: "จัดเก็บและตรวจข้อมูล", exact: true })
+    .click();
+  await staff
+    .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
+    .waitFor();
+  assert.equal(
+    await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
+    "เยี่ยมบ้านผู้สูงอายุประจำเดือน",
+  );
+  await staff.reload();
+  await staff
+    .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
+    .waitFor();
+  assert.equal(
+    await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
+    "เยี่ยมบ้านผู้สูงอายุประจำเดือน",
+  );
+  assert.equal(
+    await staff.getByLabel("งานที่รับผิดชอบ", { exact: true }).inputValue(),
+    "งานสาธารณสุขชุมชน",
+  );
+  assert.equal(
+    await staff
+      .getByLabel("ฝ่าย/กลุ่มงาน", { exact: true })
+      .getAttribute("readonly"),
+    "",
+  );
+  await staff.setViewportSize({ width: 1440, height: 1000 });
+  await staff.screenshot({
+    path: "test-results/staff-report-desktop.png",
+    fullPage: true,
+  });
+  await staff
+    .getByRole("button", { name: "บันทึกข้อมูล", exact: true })
+    .click();
+  await staff
+    .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
+    .waitFor();
+  await staff
+    .getByRole("button", {
+      name: "เยี่ยมบ้านผู้สูงอายุประจำเดือน",
+      exact: true,
+    })
+    .waitFor();
+  const savedStaffReport = app.locals.db
+    .prepare("SELECT * FROM activities WHERE title=?")
+    .get("เยี่ยมบ้านผู้สูงอายุประจำเดือน");
+  assert.equal(savedStaffReport.work_id, assignedWork);
+  const evidenceFiles = app.locals.db
+    .prepare("SELECT title,work_id FROM files WHERE activity_id=?")
+    .all(savedStaffReport.id);
+  assert.equal(evidenceFiles.length, 2);
+  for (const file of evidenceFiles) {
+    assert.equal(file.title, savedStaffReport.title);
+    assert.equal(file.work_id, assignedWork);
+  }
+  await staffContext.close();
   assert.deepEqual(errors, [], "Browser runtime errors");
   console.log(
     "PASS: desktop login, account creation, real upload, activity save, dashboard, news publication, persistent session, mobile/tablet navigation and layout.",

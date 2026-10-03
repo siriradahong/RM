@@ -13,7 +13,7 @@ export function registerAdminRoutes(app, db) {
     res.json(
       db
         .prepare(
-          "SELECT u.*,n.name AS unit_name FROM users u LEFT JOIN units n ON n.id=u.unit_id ORDER BY u.id",
+          "SELECT u.*,n.name AS unit_name,w.name AS work_name FROM users u LEFT JOIN units n ON n.id=u.unit_id LEFT JOIN works w ON w.id=u.work_id ORDER BY u.id",
         )
         .all()
         .map(publicUser),
@@ -39,6 +39,13 @@ export function registerAdminRoutes(app, db) {
     )
       throw httpError(400, "สังกัดไม่พร้อมใช้งาน");
     if (
+      input.work_id &&
+      !db
+        .prepare("SELECT id FROM works WHERE id=? AND unit_id=? AND active=1")
+        .get(input.work_id, input.unit_id)
+    )
+      throw httpError(400, "กรุณาเลือกงานที่เปิดใช้งานในฝ่ายที่สังกัด");
+    if (
       input.scopes.some(
         (i) =>
           !db
@@ -63,6 +70,7 @@ export function registerAdminRoutes(app, db) {
         input.name,
         passwordHash,
         input.unit_id,
+        input.work_id,
         JSON.stringify(input.roles),
         JSON.stringify(input.roles.includes("head") ? input.scopes : []),
         input.active ? 1 : 0,
@@ -71,7 +79,7 @@ export function registerAdminRoutes(app, db) {
       let id;
       if (old) {
         db.prepare(
-          "UPDATE users SET username=?,name=?,password_hash=?,unit_id=?,roles=?,scopes=?,active=?,line_user_id=? WHERE id=?",
+          "UPDATE users SET username=?,name=?,password_hash=?,unit_id=?,work_id=?,roles=?,scopes=?,active=?,line_user_id=? WHERE id=?",
         ).run(...values, old.id);
         id = old.id;
         db.prepare("DELETE FROM sessions WHERE user_id=?").run(id);
@@ -79,7 +87,7 @@ export function registerAdminRoutes(app, db) {
         id = Number(
           db
             .prepare(
-              "INSERT INTO users(username,name,password_hash,unit_id,roles,scopes,active,line_user_id) VALUES(?,?,?,?,?,?,?,?)",
+              "INSERT INTO users(username,name,password_hash,unit_id,work_id,roles,scopes,active,line_user_id) VALUES(?,?,?,?,?,?,?,?,?)",
             )
             .run(...values).lastInsertRowid,
         );
