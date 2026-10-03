@@ -324,9 +324,12 @@ function useResource(path) {
     setData(null);
     setError("");
     api(path, { signal: controller.signal })
-      .then(setData)
+      .then((value) => {
+        if (!controller.signal.aborted) setData(value);
+      })
       .catch((e) => {
-        if (e.name !== "AbortError") setError(e.message);
+        if (!controller.signal.aborted && e.name !== "AbortError")
+          setError(e.message);
       });
     return () => controller.abort();
   }, [path, version]);

@@ -14,9 +14,12 @@ export async function api(path, { method = "GET", body, signal } = {}) {
     },
     body: body ? (form ? body : JSON.stringify(body)) : undefined,
   });
-  const result = await response
-    .json()
-    .catch(() => ({ error: "การตอบกลับจากเซิร์ฟเวอร์ไม่ถูกต้อง" }));
+  const result = await response.json().catch((error) => {
+    if (error.name === "AbortError") throw error;
+    throw Object.assign(new Error("การตอบกลับจากเซิร์ฟเวอร์ไม่ถูกต้อง"), {
+      status: response.status,
+    });
+  });
   if (!response.ok) {
     if (
       response.status === 401 &&
