@@ -3027,46 +3027,70 @@ function UserForm({ initial, onClose, onSaved }) {
             onChange={(e) => set("password", e.target.value)}
           />
         </Field>
-        <Field label="สังกัด">
-          <select
-            value={form.unit_id || ""}
-            required={form.roles.includes("staff")}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, unit_id: e.target.value, work_id: "" }))
-            }
-          >
-            <option value="">ส่วนกลาง / ไม่ระบุ</option>
-            <UnitOptions
-              units={meta.units}
-              allowed={meta.units.filter(
-                (u) => u.active || u.id === form.unit_id,
+        <section className="account-assignment" aria-label="กำหนดฝ่ายและงาน">
+          <h3>ฝ่ายและงานที่แอดมินกำหนด</h3>
+          <Field label="ฝ่าย/กลุ่มงาน">
+            <select
+              value={form.unit_id || ""}
+              required={form.roles.includes("staff")}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, unit_id: e.target.value, work_id: "" }))
+              }
+            >
+              <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+              <UnitOptions
+                units={meta.units}
+                allowed={meta.units.filter(
+                  (u) => u.active || u.id === form.unit_id,
+                )}
+              />
+            </select>
+          </Field>
+          <Field label="งานที่รับผิดชอบ *">
+            <select
+              required={form.roles.includes("staff")}
+              disabled={!form.unit_id || !form.roles.includes("staff")}
+              value={form.work_id || ""}
+              onChange={(e) => set("work_id", e.target.value)}
+            >
+              <option value="">
+                {!form.unit_id
+                  ? "เลือกฝ่ายก่อน แล้วเลือกงาน"
+                  : "เลือกงานในฝ่ายที่สังกัด"}
+              </option>
+              <WorkOptions
+                works={meta.works.filter((w) => w.active)}
+                unitId={form.unit_id}
+                selected={form.work_id}
+              />
+            </select>
+          </Field>
+          <p className="muted">
+            {form.roles.includes("staff")
+              ? "พนักงาน 1 คน ต้องเลือก 1 ฝ่าย และ 1 งานก่อนบันทึกบัญชี"
+              : "เลือกบทบาทเจ้าหน้าที่ปฏิบัติงานด้านล่าง เพื่อกำหนดงานประจำให้บัญชีนี้"}
+          </p>
+          {form.unit_id && (
+            <div className="assignment-work-list">
+              <strong>งานในฝ่ายที่เลือก</strong>
+              <ul>
+                {meta.works
+                  .filter((w) => w.active && w.unit_id === Number(form.unit_id))
+                  .map((w) => (
+                    <li key={w.id}>{w.name}</li>
+                  ))}
+              </ul>
+              {!meta.works.some(
+                (w) => w.active && w.unit_id === Number(form.unit_id),
+              ) && (
+                <p>
+                  ยังไม่มีงานที่เปิดใช้งานในฝ่ายนี้
+                  ผู้ดูแลเพิ่มได้ที่แท็บหน่วยงานและหมวดข้อมูล
+                </p>
               )}
-            />
-          </select>
-        </Field>
-        {form.roles.includes("staff") && (
-          <>
-            <Field label="งานที่รับผิดชอบ *">
-              <select
-                required
-                disabled={!form.unit_id}
-                value={form.work_id || ""}
-                onChange={(e) => set("work_id", e.target.value)}
-              >
-                <option value="">เลือกงานในฝ่ายที่สังกัด</option>
-                <WorkOptions
-                  works={meta.works.filter((w) => w.active)}
-                  unitId={form.unit_id}
-                  selected={form.work_id}
-                />
-              </select>
-            </Field>
-            <p className="muted">
-              พนักงานแต่ละคนสังกัดได้ 1 ฝ่าย และรับผิดชอบ 1 งาน
-              โดยผู้ดูแลระบบเป็นผู้กำหนด
-            </p>
-          </>
-        )}
+            </div>
+          )}
+        </section>
         <div>
           <span className="field-label">บทบาท *</span>
           <div className="checkbox-grid">

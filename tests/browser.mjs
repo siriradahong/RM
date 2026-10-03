@@ -86,11 +86,11 @@ try {
   await page
     .getByLabel("รหัสผ่านอย่างน้อย 12 ตัวอักษร *", { exact: true })
     .fill("New-staff-password!");
-  await page.getByLabel("สังกัด", { exact: true }).selectOption("1");
+  await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
   await page
     .getByLabel("งานที่รับผิดชอบ *", { exact: true })
     .selectOption(String(assignedWork));
-  await page.getByLabel("สังกัด", { exact: true }).selectOption("2");
+  await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("2");
   assert.equal(
     await page.getByLabel("งานที่รับผิดชอบ *", { exact: true }).inputValue(),
     "",
@@ -103,10 +103,15 @@ try {
       .count(),
     0,
   );
-  await page.getByLabel("สังกัด", { exact: true }).selectOption("1");
+  await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
   await page
     .getByLabel("งานที่รับผิดชอบ *", { exact: true })
     .selectOption(String(assignedWork));
+  assert.equal(await page.locator(".assignment-work-list li").count(), 3);
+  await page.screenshot({
+    path: "test-results/admin-assignment-form.png",
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "บันทึกบัญชี", exact: true }).click();
   await page.getByText("staff.real", { exact: true }).waitFor();
   await page.screenshot({
@@ -373,15 +378,13 @@ try {
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
   await staff.goto(origin + "/#import");
-  await staff
-    .locator("input[type=file]")
-    .setInputFiles(
-      ["first.pdf", "second.pdf"].map((name) => ({
-        name,
-        mimeType: "application/pdf",
-        buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
-      })),
-    );
+  await staff.locator("input[type=file]").setInputFiles(
+    ["first.pdf", "second.pdf"].map((name) => ({
+      name,
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+    })),
+  );
   await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
   await staff
     .getByRole("button", { name: /จัดข้อมูลเพื่อนำไปสรุปผลงาน/ })
