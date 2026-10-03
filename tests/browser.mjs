@@ -107,7 +107,6 @@ try {
   await page
     .getByLabel("งานที่รับผิดชอบ *", { exact: true })
     .selectOption(String(assignedWork));
-  assert.equal(await page.locator(".assignment-work-list li").count(), 3);
   await page.screenshot({
     path: "test-results/admin-assignment-form.png",
     fullPage: true,

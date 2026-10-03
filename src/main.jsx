@@ -3065,31 +3065,6 @@ function UserForm({ initial, onClose, onSaved }) {
               />
             </select>
           </Field>
-          <p className="muted">
-            {form.roles.includes("staff")
-              ? "พนักงาน 1 คน ต้องเลือก 1 ฝ่าย และ 1 งานก่อนบันทึกบัญชี"
-              : "เลือกบทบาทเจ้าหน้าที่ปฏิบัติงานด้านล่าง เพื่อกำหนดงานประจำให้บัญชีนี้"}
-          </p>
-          {form.unit_id && (
-            <div className="assignment-work-list">
-              <strong>งานในฝ่ายที่เลือก</strong>
-              <ul>
-                {meta.works
-                  .filter((w) => w.active && w.unit_id === Number(form.unit_id))
-                  .map((w) => (
-                    <li key={w.id}>{w.name}</li>
-                  ))}
-              </ul>
-              {!meta.works.some(
-                (w) => w.active && w.unit_id === Number(form.unit_id),
-              ) && (
-                <p>
-                  ยังไม่มีงานที่เปิดใช้งานในฝ่ายนี้
-                  ผู้ดูแลเพิ่มได้ที่แท็บหน่วยงานและหมวดข้อมูล
-                </p>
-              )}
-            </div>
-          )}
         </section>
         <div>
           <span className="field-label">บทบาท *</span>
