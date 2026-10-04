@@ -1,0 +1,14 @@
+{
+  "full": 23,
+  "partial": 6,
+  "missing": 3,
+  "total": 32,
+  "coverage": 71.9,
+  "evaluationPlan": {
+    "generalUsers": 30,
+    "domainExperts": 1,
+    "total": 31,
+    "actualResponses": null
+  },
+  "diagramsVerified": false
+}

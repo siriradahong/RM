@@ -1,0 +1,334 @@
+{
+  "date": "2026-10-04",
+  "sourceCommit": "1272553c0a09d6f3b7ecbbf6b294d314c85b55a2",
+  "isolatedDatabase": true,
+  "noExternalMessages": true,
+  "activity": {
+    "id": 19,
+    "title": "[สาธิตส่งงาน] กิจกรรมขยับกายและเรียนรู้การดูแลสุขภาพ",
+    "date": "2026-10-02",
+    "unit_id": 1,
+    "files": 2,
+    "status": "ready",
+    "metrics": [
+      {
+        "label": "ผู้เข้าร่วมกิจกรรม",
+        "value": 120,
+        "unit": "คน"
+      },
+      {
+        "label": "อาสาสมัคร",
+        "value": 15,
+        "unit": "คน"
+      },
+      {
+        "label": "จุดจัดกิจกรรม",
+        "value": 3,
+        "unit": "แห่ง"
+      }
+    ]
+  },
+  "news": {
+    "id": 7,
+    "activity_id": 19,
+    "status": "published",
+    "line_status": "not_sent"
+  },
+  "checks": [
+    "Flow A: upload 2 files, title carry, save pending",
+    "Head: update pending to ready",
+    "Flow B: dashboard to list to evidence",
+    "Executive: read-only report",
+    "Flow C: source to draft to preview to internal publication",
+    "Flow D: edit user and inspect audit",
+    "Mobile: no horizontal page overflow"
+  ],
+  "captures": [
+    {
+      "id": "01-login",
+      "title": "เข้าสู่ระบบ",
+      "screen": "S01",
+      "flow": "ร่วมทุก Flow",
+      "route": "",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "06a-import-files",
+      "title": "เลือกไฟล์หลักฐานสองไฟล์",
+      "screen": "S06",
+      "flow": "A",
+      "route": "#import",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "06b-import-purpose",
+      "title": "เลือกวัตถุประสงค์การนำเข้า",
+      "screen": "S06",
+      "flow": "A",
+      "route": "#import",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "06c-import-review",
+      "title": "ชื่อเรื่องและสังกัดก่อนนำเข้า",
+      "screen": "S06",
+      "flow": "A",
+      "route": "#import",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "07a-report-edit",
+      "title": "ตรวจข้อมูลและหลักฐาน",
+      "screen": "S07",
+      "flow": "A",
+      "route": "#activity/new",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "02-dashboard-mine",
+      "title": "ข้อมูลที่ฉันนำเข้า หลังบันทึกและตรวจข้อมูล",
+      "screen": "S02",
+      "flow": "A",
+      "route": "#dashboard/mine",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "03-dashboard-unit",
+      "title": "แดชบอร์ดฝ่ายส่งเสริมสุขภาพ",
+      "screen": "S03",
+      "flow": "B",
+      "route": "#dashboard/unit",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "05a-library",
+      "title": "รายการที่มาของยอดสรุป",
+      "screen": "S05",
+      "flow": "B",
+      "route": "#library",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "07b-report-ready",
+      "title": "รายงานพร้อมสรุปและหลักฐานเดียวกัน",
+      "screen": "S07",
+      "flow": "B",
+      "route": "#activity/19",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "04-dashboard-overview",
+      "title": "ภาพรวมสำนัก แยกกิจกรรมและหน่วยนับ",
+      "screen": "S04",
+      "flow": "B",
+      "route": "#dashboard/overview",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "07c-report-readonly",
+      "title": "ผู้บริหารอ่านรายงานเดียวกัน",
+      "screen": "S07",
+      "flow": "B",
+      "route": "#activity/19",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "05b-files",
+      "title": "คลังไฟล์และเอกสาร",
+      "screen": "S05",
+      "flow": "A/B",
+      "route": "#library",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "09-news-manager",
+      "title": "เลือกรายงานต้นทางเพื่อจัดทำข่าว",
+      "screen": "S09",
+      "flow": "C",
+      "route": "#news",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "10a-news-edit",
+      "title": "ตรวจแก้ข่าวและเลือกภาพจากหลักฐาน",
+      "screen": "S10",
+      "flow": "C",
+      "route": "#news/new?activity=19",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "10b-news-preview",
+      "title": "ดูข่าวก่อนยืนยันเผยแพร่",
+      "screen": "S10",
+      "flow": "C",
+      "route": "#news/new?activity=19",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "10c-news-published",
+      "title": "สถานะเว็บและ LINE แยกกัน",
+      "screen": "S10",
+      "flow": "C",
+      "route": "#news/new?activity=19",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "08-feed",
+      "title": "ข่าวเดียวกันปรากฏบนฟีดภายใน",
+      "screen": "S08",
+      "flow": "C",
+      "route": "#feed",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "11a-admin-users",
+      "title": "ผู้ใช้งานและสิทธิ์",
+      "screen": "S11",
+      "flow": "D",
+      "route": "#admin",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "11d-admin-edit",
+      "title": "กำหนดฝ่ายและงานตามบทบาท",
+      "screen": "S11",
+      "flow": "D",
+      "route": "#admin",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "11b-admin-master",
+      "title": "ส่วน ฝ่าย และงานในสังกัด",
+      "screen": "S11",
+      "flow": "D",
+      "route": "#admin/master",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "11c-admin-line",
+      "title": "สถานะ LINE ที่ยังไม่ได้เชื่อมบริการจริง",
+      "screen": "S11",
+      "flow": "ข้อจำกัด",
+      "route": "#admin/line",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "12a-audit-list",
+      "title": "ค้นหาและกรองประวัติการแก้ไข",
+      "screen": "S12",
+      "flow": "D",
+      "route": "#audit",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "12b-audit-diff",
+      "title": "ค่าเดิมและค่าใหม่หลังแก้บัญชี",
+      "screen": "S12",
+      "flow": "D",
+      "route": "#audit",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    },
+    {
+      "id": "M01-mobile-dashboard",
+      "title": "แดชบอร์ดบนมือถือ",
+      "screen": "S04",
+      "flow": "B",
+      "route": "#dashboard/overview",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "id": "M02-mobile-audit",
+      "title": "ค่าเดิมและค่าใหม่บนมือถือ",
+      "screen": "S12",
+      "flow": "D",
+      "route": "#audit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "id": "L01-line-simulation",
+      "title": "ข้อความ LINE จำลองสำหรับจัดรายงาน",
+      "screen": "ส่วนเสริม",
+      "flow": "ข้อจำกัด",
+      "route": "#inbox",
+      "viewport": {
+        "width": 1440,
+        "height": 960
+      }
+    }
+  ]
+}
