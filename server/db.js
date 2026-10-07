@@ -78,6 +78,17 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
         INSERT INTO schema_migrations(version) VALUES(4);`);
     });
   }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=5").get()
+  ) {
+    transaction(db, () => {
+      db.exec(`ALTER TABLE activities ADD COLUMN source_text TEXT NOT NULL DEFAULT '';
+        ALTER TABLE activities ADD COLUMN intake INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE activities ADD COLUMN intake_key TEXT;
+        CREATE UNIQUE INDEX activities_intake_key ON activities(intake_key) WHERE intake_key IS NOT NULL;
+        INSERT INTO schema_migrations(version) VALUES(5);`);
+    });
+  }
   return { db, dataDir };
 }
 export function transaction(db, fn) {

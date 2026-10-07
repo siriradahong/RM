@@ -1371,373 +1371,213 @@ function FilePreview({ file, onClose }) {
 }
 
 function ImportPage() {
-  const { meta, user, navigate, notify } = useApp();
-  const [step, setStep] = useState(0),
-    [files, setFiles] = useState([]),
-    [purpose, setPurpose] = useState("archive"),
-    [unit, setUnit] = useState(user.unit_id || user.scopes[0] || ""),
-    [subject, setSubject] = useState(""),
-    [work, setWork] = useState(user.work_id || ""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [progress, setProgress] = useState(0);
-  const completed = useRef(new Map());
-  const writableUnits = meta.units.filter(
-    (u) =>
-      u.active &&
-      ((user.roles.includes("staff") && u.id === user.unit_id) ||
-        (user.roles.includes("head") && user.scopes.includes(u.id))),
-  );
-  const lockedWork = user.roles.includes("staff") && !hasHeadScope(user, unit);
-  const needsAssignment = lockedWork && !assignedWorkReady(user, meta);
+  const { user, meta, navigate, notify } = useApp();
+  const [text, setText] = useState("");
+  const [files, setFiles] = useState([]);
+  const [archive, setArchive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [progress, setProgress] = useState(0);
+  const uploaded = useRef(new Map());
+  const intakeKey = useRef(crypto.randomUUID());
+  const unit = user.roles.includes("staff")
+    ? user.unit_id
+    : user.scopes[0] || user.unit_id;
+  const work =
+    meta.works.find((w) => w.id === user.work_id && w.unit_id === unit)?.id ||
+    null;
+  const needsAssignment = staffOnly(user) && !assignedWorkReady(user, meta);
   function choose(list) {
-    const next = Array.from(list);
+    const next = [...files, ...Array.from(list)];
     if (
+      next.length > 10 ||
       next.some(
         (f) =>
           f.size > 20 * 1024 * 1024 ||
           !/\.(pdf|xlsx?|png|jpe?g|webp)$/i.test(f.name),
       )
     ) {
-      setError("รองรับ PDF, Excel และรูปภาพ ขนาดไม่เกิน 20 MB ต่อไฟล์");
-      return;
-    }
-    if (next.length > 10) {
-      setError("เลือกได้ไม่เกิน 10 ไฟล์ต่อครั้ง");
+      setError(
+        "แนบได้สูงสุด 10 ไฟล์ รองรับ PDF, Excel และรูปภาพ ขนาดไม่เกิน 20 MB ต่อไฟล์",
+      );
       return;
     }
     setFiles(next);
-    completed.current.clear();
     setError("");
   }
-  async function save() {
-    if (!subject.trim()) {
-      setError("กรุณากรอกชื่อเรื่อง");
-      return;
-    }
-    if (needsAssignment) {
-      setError("กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนนำเข้าข้อมูล");
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    if ((!text.trim() && !files.length) || (archive && !files.length)) {
+      setError(
+        archive
+          ? "กรุณาแนบไฟล์ที่ต้องการฝาก"
+          : "พิมพ์ข้อความหรือแนบไฟล์อย่างน้อยหนึ่งอย่าง",
+      );
       return;
     }
     setBusy(true);
     setError("");
     try {
+      // This is only a display label from the source, not an extracted activity title.
+      const title = (text.trim().split("\n")[0] || files[0].name).slice(0, 300);
       const ids = [];
-      for (let i = 0; i < files.length; i++) {
-        let id = completed.current.get(files[i]);
+      for (const file of files) {
+        let id = uploaded.current.get(file);
         if (!id) {
           const body = new FormData();
-          body.append("file", files[i]);
-          body.append("purpose", purpose);
+          body.append("file", file);
+          body.append("purpose", archive ? "archive" : "evidence");
           body.append("unit_id", unit);
-          body.append("title", subject.trim());
           if (work) body.append("work_id", work);
-          const result = await api("/files", { method: "POST", body });
-          id = result.id;
-          completed.current.set(files[i], id);
+          body.append("title", file.name.slice(0, 300));
+          id = (await api("/files", { method: "POST", body })).id;
+          uploaded.current.set(file, id);
         }
         ids.push(id);
-        setProgress(i + 1);
+        setProgress(ids.length);
       }
-      notify(`จัดเก็บไฟล์ ${ids.length} ไฟล์แล้ว`);
-      if (purpose === "evidence") {
-        sessionStorage.setItem(
-          "rm-new-evidence",
-          JSON.stringify({
-            file_ids: ids,
-            unit_id: Number(unit),
-            work_id: work ? Number(work) : null,
-            title: subject.trim(),
-          }),
-        );
-        navigate("activity/new");
-      } else {
+      if (archive) {
         sessionStorage.setItem("rm-library-tab", "files");
+        notify("ฝากไฟล์เข้าคลังแล้ว ไม่นับเป็นกิจกรรม");
         navigate("library");
+      } else {
+        const out = await api("/activities", {
+          method: "POST",
+          body: {
+            title,
+            date: null,
+            unit_id: Number(unit),
+            work_id: work,
+            source_text: text,
+            intake: true,
+            intake_key: intakeKey.current,
+            status: "pending",
+            file_ids: ids,
+            result: "",
+            workers: "",
+            metrics: [],
+          },
+        });
+        notify("รับรายงานแล้ว เก็บต้นฉบับไว้รอตรวจข้อมูล");
+        navigate("activity/" + out.id);
       }
     } catch (e) {
       setError(
         e.message +
-          (completed.current.size
-            ? " — ไฟล์ที่สำเร็จถูกเก็บแล้ว กดลองใหม่เพื่อดำเนินการต่อ"
+          (uploaded.current.size
+            ? " — ไฟล์ที่อัปโหลดสำเร็จถูกเก็บแล้ว กดส่งอีกครั้งเพื่อดำเนินการต่อ"
             : ""),
       );
     } finally {
       setBusy(false);
     }
   }
-  if (step === 0)
-    return (
-      <>
-        <Header
-          title="เพิ่มข้อมูล"
-          description="เลือกวิธีเพิ่มข้อมูลการปฏิบัติงาน"
-        />
-        <section className="panel import-panel">
-          <div className="choice-list">
-            <button
-              type="button"
-              className="choice"
-              onClick={() => {
-                sessionStorage.removeItem("rm-new-evidence");
-                navigate("activity/new");
-              }}
-            >
-              <FileText size={28} />
-              <div>
-                <h3>กรอกรายงานเอง</h3>
-                <p>กรอกชื่อเรื่องและผลการปฏิบัติงาน แล้วแนบหลักฐานได้ภายหลัง</p>
-              </div>
-              <ArrowRight size={20} />
-            </button>
-            <button type="button" className="choice" onClick={() => setStep(1)}>
-              <Upload size={28} />
-              <div>
-                <h3>อัปโหลดไฟล์</h3>
-                <p>
-                  นำเข้าเอกสารหรือรูปภาพ
-                  เพื่อเก็บในคลังหรือสร้างรายงานพร้อมหลักฐาน
-                </p>
-              </div>
-              <ArrowRight size={20} />
-            </button>
-          </div>
-        </section>
-      </>
-    );
   return (
     <>
       <Header
-        title="อัปโหลดไฟล์"
-        action={
-          step === 1 && (
-            <Button onClick={() => setStep(0)}>
-              กลับไปเลือกวิธีเพิ่มข้อมูล
-            </Button>
-          )
-        }
-        description="เก็บไฟล์ไว้ค้นหา หรือเชื่อมไฟล์เป็นหลักฐานของรายการงาน"
+        title="เพิ่มข้อมูล"
+        description="ส่งรายงานเหมือนใน LINE พิมพ์ข้อความ แนบไฟล์ หรือส่งทั้งสองอย่างพร้อมกัน"
       />
-      <div className="steps">
-        {["เลือกไฟล์", "เลือกวัตถุประสงค์", "ตรวจข้อมูลและบันทึก"].map(
-          (s, i) => (
-            <div
-              key={s}
-              className={step === i + 1 ? "active" : step > i + 1 ? "done" : ""}
-            >
-              <span>{step > i + 1 ? <Check size={17} /> : i + 1}</span>
-              {s}
-            </div>
-          ),
-        )}
-      </div>
       <section className="panel import-panel">
-        {error && <Notice error>{error}</Notice>}
-        {step === 1 ? (
-          <>
+        <form className="form" onSubmit={submit}>
+          <fieldset disabled={busy || needsAssignment || !unit}>
+            {!archive && (
+              <Field label="ข้อความรายงาน">
+                <textarea
+                  rows={8}
+                  maxLength={20000}
+                  value={text}
+                  disabled={uploaded.current.size > 0}
+                  placeholder="พิมพ์หรือวางรายงานเหมือนที่ส่งใน LINE… หากรายละเอียดอยู่ในไฟล์แล้ว ส่งไฟล์อย่างเดียวได้"
+                  onChange={(e) => setText(e.target.value)}
+                />
+              </Field>
+            )}
             <label
               className="dropzone"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                choose(e.dataTransfer.files);
+                if (!busy && !uploaded.current.size)
+                  choose(e.dataTransfer.files);
               }}
             >
-              <FileUp size={42} />
-              <h2>ลากไฟล์มาวางที่นี่</h2>
-              <p>หรือเลือกไฟล์จากคอมพิวเตอร์ / โทรศัพท์</p>
-              <span className="button primary">เลือกไฟล์</span>
-              <small>PDF, Excel, JPG, PNG, WebP · สูงสุด 20 MB ต่อไฟล์</small>
+              <FileUp size={32} />
+              <h2>ลากไฟล์มาวาง หรือกดแนบไฟล์</h2>
+              <p>PDF, Excel หรือรูปภาพ · สูงสุด 10 ไฟล์ · 20 MB ต่อไฟล์</p>
               <input
-                aria-label="เลือกไฟล์"
                 type="file"
-                accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp"
+                aria-label="แนบไฟล์"
                 multiple
-                onChange={(e) => choose(e.target.files)}
+                accept=".pdf,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+                disabled={busy || uploaded.current.size > 0}
+                onChange={(e) => {
+                  choose(e.target.files);
+                  e.target.value = "";
+                }}
               />
             </label>
             <div className="file-list">
               {files.map((f, i) => (
-                <div key={i}>
-                  <FileText size={21} />
+                <div className="file-row" key={i}>
+                  <FileText size={20} />
                   <span>
-                    {f.name}
-                    <small>{bytes(f.size)}</small>
+                    {f.name} · {bytes(f.size)}
                   </span>
-                  <button
-                    className="icon-button"
-                    aria-label="ลบไฟล์"
+                  <Button
+                    type="button"
+                    disabled={uploaded.current.size > 0}
                     onClick={() => setFiles(files.filter((_, j) => j !== i))}
                   >
-                    <X size={18} />
-                  </button>
+                    ลบไฟล์
+                  </Button>
                 </div>
               ))}
             </div>
-            <div className="modal-actions">
-              <Button
-                primary
-                disabled={!files.length}
-                onClick={() => setStep(2)}
-                icon={ArrowRight}
-              >
-                ถัดไป
-              </Button>
-            </div>
-          </>
-        ) : step === 2 ? (
-          <>
-            <h2>ต้องการใช้ไฟล์นี้เพื่ออะไร?</h2>
-            <div className="choice-list">
-              {[
-                [
-                  "archive",
-                  "ฝากไฟล์ไว้ค้นหาและอ้างอิง",
-                  "เก็บเอกสารส่วนกลาง โดยไม่เพิ่มจำนวนกิจกรรม",
-                  FolderOpen,
-                ],
-                [
-                  "evidence",
-                  "จัดข้อมูลเพื่อนำไปสรุปผลงาน",
-                  "เชื่อมหลักฐานกับรายการงาน แล้วตรวจข้อมูลก่อนรวมยอด",
-                  Activity,
-                ],
-              ].map(([v, t, d, Icon]) => (
-                <button
-                  key={v}
-                  className={`choice ${purpose === v ? "selected" : ""}`}
-                  onClick={() => setPurpose(v)}
-                >
-                  <Icon size={26} />
-                  <div>
-                    <h3>{t}</h3>
-                    <p>{d}</p>
-                  </div>
-                  <span className="radio-dot" />
-                </button>
-              ))}
-            </div>
-            <div className="modal-actions">
-              <Button onClick={() => setStep(1)}>ย้อนกลับ</Button>
-              <Button primary onClick={() => setStep(3)} icon={ArrowRight}>
-                ถัดไป
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <h2>ตรวจรายละเอียดก่อนนำเข้า</h2>
-            <form
-              className="form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                save();
-              }}
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={archive}
+                disabled={uploaded.current.size > 0}
+                onChange={(e) => setArchive(e.target.checked)}
+              />{" "}
+              ฝากไฟล์ไว้ค้นหาเท่านั้น
+            </label>
+            <Notice>
+              {archive
+                ? "เก็บไฟล์ในคลัง ไม่สร้างรายงานและไม่นับยอดกิจกรรม"
+                : "เก็บข้อความและไฟล์ต้นฉบับก่อน ขณะนี้ยังไม่เชื่อม AI/OCR จึงยังไม่แยกข้อมูลจากข้อความหรือเอกสารอัตโนมัติ รายงานจะรอตรวจและยังไม่รวมยอดบนแดชบอร์ด"}
+            </Notice>
+            <p className="muted">
+              ผู้ส่ง: {user.name} · ฝ่ายรับเรื่อง:{" "}
+              {meta.units.find((u) => u.id === unit)?.name || "ยังไม่ระบุ"} —
+              ต้องตรวจฝ่ายเจ้าของรายงานและผู้ปฏิบัติงานจากต้นฉบับอีกครั้ง
+            </p>
+            {error && <Notice error>{error}</Notice>}
+            <Button
+              primary
+              type="submit"
+              icon={Upload}
+              disabled={
+                busy ||
+                (!text.trim() && !files.length) ||
+                (archive && !files.length)
+              }
             >
-              {staffOnly(user) ? (
-                <AssignmentFields unitId={user.unit_id} workId={user.work_id} />
-              ) : (
-                <>
-                  <Field label="ฝ่าย/กลุ่มงาน">
-                    <select
-                      value={unit}
-                      onChange={(e) => {
-                        setUnit(e.target.value);
-                        setWork(
-                          Number(e.target.value) === user.unit_id
-                            ? user.work_id || ""
-                            : "",
-                        );
-                        completed.current.clear();
-                      }}
-                      disabled={busy || completed.current.size > 0}
-                    >
-                      <UnitOptions units={meta.units} allowed={writableUnits} />
-                    </select>
-                  </Field>
-                  <Field label="งานที่รับผิดชอบ">
-                    {lockedWork ? (
-                      <input
-                        readOnly
-                        value={
-                          meta.works.find((w) => w.id === user.work_id)?.name ||
-                          "รอผู้ดูแลระบบกำหนดงาน"
-                        }
-                      />
-                    ) : (
-                      <select
-                        value={work}
-                        onChange={(e) => setWork(e.target.value)}
-                        disabled={busy || completed.current.size > 0}
-                      >
-                        <option value="">ยังไม่ระบุงาน</option>
-                        <WorkOptions
-                          works={meta.works}
-                          unitId={unit}
-                          selected={work}
-                        />
-                      </select>
-                    )}
-                  </Field>
-                </>
-              )}
-              {needsAssignment && (
-                <Notice error>
-                  กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนนำเข้าข้อมูล
-                </Notice>
-              )}
-              <Field label="ชื่อเรื่อง *">
-                <input
-                  required
-                  maxLength={300}
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="กรอกชื่อเรื่องของเอกสารหรือรายงาน"
-                  disabled={busy || completed.current.size > 0}
-                />
-              </Field>
-              <div className="file-list">
-                {files.map((f, i) => (
-                  <div key={i}>
-                    <FileText size={20} />
-                    <span>{f.name}</span>
-                    {completed.current.has(f) ? (
-                      <Badge status="ready">จัดเก็บแล้ว</Badge>
-                    ) : (
-                      <Badge>รอนำเข้า</Badge>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <Notice>
-                {purpose === "archive"
-                  ? "ไฟล์จะถูกจัดเก็บเพื่อค้นหา และไม่ถูกนับเป็นกิจกรรม"
-                  : "หลังอัปโหลดจะเปิดแบบฟอร์มให้ตรวจและกรอกข้อมูลจากไฟล์จริง ขณะนี้ยังไม่ได้เชื่อมบริการ AI จึงไม่มีการสกัดข้อมูลอัตโนมัติ"}
-              </Notice>
-              <div className="modal-actions">
-                <Button
-                  type="button"
-                  disabled={busy || completed.current.size > 0}
-                  onClick={() => setStep(2)}
-                >
-                  ย้อนกลับ
-                </Button>
-                <Button
-                  primary
-                  disabled={busy || !unit || needsAssignment || !subject.trim()}
-                  type="submit"
-                  icon={Upload}
-                >
-                  {busy
-                    ? `กำลังจัดเก็บ ${progress}/${files.length}`
-                    : purpose === "archive"
-                      ? "บันทึกไฟล์เข้าคลัง"
-                      : "จัดเก็บและตรวจข้อมูล"}
-                </Button>
-              </div>
-            </form>
-          </>
-        )}
+              {busy
+                ? `กำลังจัดเก็บ ${progress}/${files.length} ไฟล์…`
+                : archive
+                  ? "ฝากไฟล์"
+                  : "ส่งรายงาน"}
+            </Button>
+          </fieldset>
+          {(needsAssignment || !unit) && (
+            <Notice error>
+              กรุณาให้แอดมินกำหนดฝ่ายและงานของบัญชีก่อนส่งรายงาน
+            </Notice>
+          )}
+        </form>
       </section>
     </>
   );
@@ -1771,7 +1611,8 @@ function ActivityEditor({ id }) {
     [preview, setPreview] = useState(null),
     [evidence, setEvidence] = useState([]),
     [attach, setAttach] = useState(false),
-    [addCategory, setAddCategory] = useState(false);
+    [addCategory, setAddCategory] = useState(false),
+    [detailsOpen, setDetailsOpen] = useState(false);
   const newRef = useRef(null);
   useEffect(() => {
     let alive = true;
@@ -1828,6 +1669,8 @@ function ActivityEditor({ id }) {
     try {
       const body = {
         ...form,
+        intake: Boolean(form.intake),
+        intake_key: form.intake_key || undefined,
         unit_id: Number(form.unit_id),
         category_id: form.category_id ? Number(form.category_id) : null,
         work_id: form.work_id ? Number(form.work_id) : null,
@@ -1851,7 +1694,7 @@ function ActivityEditor({ id }) {
   return (
     <>
       <Header
-        title={fresh ? "สร้างรายการงาน" : "รายละเอียดและตรวจแก้ข้อมูล"}
+        title="ตรวจข้อมูลรายงาน"
         description="ตรวจข้อมูลร่วมกับหลักฐานต้นทาง แยกผู้รายงานออกจากผู้ปฏิบัติงาน"
         action={
           <Button icon={ArrowLeft} onClick={() => navigate("library")}>
@@ -1875,8 +1718,9 @@ function ActivityEditor({ id }) {
             <div>
               <h2>หลักฐานต้นทาง</h2>
               <p>
-                {record?.messages?.length || form.inbox_ids.length} ข้อความ ·{" "}
-                {evidence.length} ไฟล์
+                {(record?.messages?.length || form.inbox_ids.length) +
+                  (record?.source_text ? 1 : 0)}{" "}
+                ข้อความ · {evidence.length} ไฟล์
               </p>
             </div>
             {editable && (
@@ -1885,6 +1729,19 @@ function ActivityEditor({ id }) {
               </Button>
             )}
           </div>
+          {record?.intake && (
+            <div className="source-message">
+              <h3>ต้นฉบับที่ผู้ส่งส่งมา</h3>
+              <p style={{ whiteSpace: "pre-wrap" }}>
+                {record.source_text ||
+                  "ส่งไฟล์อย่างเดียว — เปิดหลักฐานเพื่อตรวจรายละเอียด"}
+              </p>
+              <small>
+                รับข้อมูลเมื่อ {fmt(record.created_at, true)} ·{" "}
+                {record.owner_name}
+              </small>
+            </div>
+          )}
           {record?.messages?.map((m) => (
             <div className="source-message" key={m.id}>
               <Badge status="line">LINE</Badge>
@@ -1929,8 +1786,64 @@ function ActivityEditor({ id }) {
           )}
         </section>
         <section className="panel form-panel">
-          <h2>ข้อมูลรายการงาน</h2>
-          <form className="form" onSubmit={save}>
+          <h2>สรุปข้อมูลเพื่อตรวจสอบ</h2>
+          {record?.intake && (
+            <>
+              <Notice>
+                ยังไม่ได้แยกข้อมูลด้วย AI/OCR
+                ชื่อรายการใช้ข้อความบรรทัดแรกหรือชื่อไฟล์เพื่อค้นหาเท่านั้น
+                โปรดตรวจต้นฉบับก่อนยืนยัน ไม่อนุมานจำนวนผู้รับบริการจากรูปถ่าย
+              </Notice>
+              <dl className="review-summary">
+                <dt>ชื่อรายการ</dt>
+                <dd>{form.title}</dd>
+                <dt>วันที่ปฏิบัติงาน</dt>
+                <dd>{form.date ? fmt(form.date) : "ยังไม่ระบุ"}</dd>
+                <dt>
+                  {form.status === "pending"
+                    ? "ฝ่ายรับเรื่อง (รอยืนยันเจ้าของงาน)"
+                    : "ฝ่ายเจ้าของงาน"}
+                </dt>
+                <dd>{meta.units.find((u) => u.id === form.unit_id)?.name}</dd>
+                <dt>ผลการดำเนินงาน</dt>
+                <dd>{form.result || "รอตรวจจากต้นฉบับ"}</dd>
+                <dt>
+                  {form.status === "ready"
+                    ? "จำนวนที่ยืนยัน"
+                    : "ตัวเลขรอยืนยัน"}
+                </dt>
+                <dd>
+                  {form.metrics.length
+                    ? form.metrics
+                        .map((m) => `${m.label} ${m.value} ${m.unit}`)
+                        .join(" · ")
+                    : "ยังไม่มี — ไม่นับยอด"}
+                </dd>
+              </dl>
+              {form.status === "pending" && (
+                <p className="muted">
+                  ต้องตรวจวันที่ ประเภทงาน พื้นที่ ผู้ปฏิบัติงาน ผลการดำเนินงาน
+                  และฝ่ายเจ้าของรายงาน หากฝ่ายไม่ตรง
+                  ให้หัวหน้าที่มีสิทธิ์ตรวจแก้ก่อนยืนยัน
+                </p>
+              )}
+              <Button
+                type="button"
+                onClick={() => setDetailsOpen(!detailsOpen)}
+              >
+                {detailsOpen
+                  ? "ปิดรายละเอียด"
+                  : editable
+                    ? "ตรวจและแก้ไขรายละเอียด"
+                    : "ดูรายละเอียด"}
+              </Button>
+            </>
+          )}
+          <form
+            className="form"
+            onSubmit={save}
+            hidden={record?.intake && !detailsOpen}
+          >
             {needsAssignment && (
               <Notice error>
                 กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนสร้างรายการ
@@ -2175,7 +2088,11 @@ function ActivityEditor({ id }) {
               {error && <Notice error>{error}</Notice>}
               {editable && (
                 <Button primary disabled={busy} icon={Save}>
-                  {busy ? "กำลังบันทึก…" : "บันทึกข้อมูล"}
+                  {busy
+                    ? "กำลังบันทึก…"
+                    : form.status === "ready"
+                      ? "ยืนยันข้อมูล"
+                      : "บันทึกไว้รอตรวจ"}
                 </Button>
               )}
             </fieldset>

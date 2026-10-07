@@ -2415,3 +2415,24 @@ footer {
   font-weight: 700;
   white-space: nowrap;
 }
+
+.form[hidden] {
+  display: none;
+}
+.review-summary {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0;
+  overflow-wrap: anywhere;
+}
+.review-summary dt {
+  color: #526e84;
+  font-size: 13px;
+}
+.review-summary dd {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+}
+.source-message {
+  overflow-wrap: anywhere;
+}

@@ -90,7 +90,7 @@ try {
   await capture(anon, "01-login", "เข้าสู่ระบบ", "S01", "ร่วมทุก Flow");
   const staff = await login("demo.staff.health-promotion");
   await route(staff, "import");
-  await staff.getByRole("button", { name: /อัปโหลดไฟล์/ }).click();
+
   await staff
     .locator("input[type=file]")
     .setInputFiles([
@@ -104,33 +104,29 @@ try {
     "S06",
     "A",
   );
-  await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
+  const title = "[สาธิตส่งงาน] กิจกรรมขยับกายและเรียนรู้การดูแลสุขภาพ";
+  await staff.getByLabel("ข้อความรายงาน").fill(title);
   await capture(
     staff,
     "06b-import-purpose",
-    "เลือกวัตถุประสงค์การนำเข้า",
+    "ข้อความพร้อมไฟล์ในหน้าเดียว",
     "S06",
     "A",
   );
-  await staff
-    .getByRole("button", { name: /จัดข้อมูลเพื่อนำไปสรุปผลงาน/ })
-    .click();
-  await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
-  const title = "[สาธิตส่งงาน] กิจกรรมขยับกายและเรียนรู้การดูแลสุขภาพ";
-  await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).fill(title);
   await capture(
     staff,
     "06c-import-review",
-    "ชื่อเรื่องและสังกัดก่อนนำเข้า",
+    "ตรวจต้นฉบับก่อนส่งรายงาน",
     "S06",
     "A",
   );
+  await staff.getByRole("button", { name: "ส่งรายงาน", exact: true }).click();
   await staff
-    .getByRole("button", { name: "จัดเก็บและตรวจข้อมูล", exact: true })
-    .click();
-  await staff
-    .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
+    .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
+  await staff
+    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .click();
   assert.equal(
     await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     title,
@@ -167,7 +163,7 @@ try {
     .selectOption("pending");
   await capture(staff, "07a-report-edit", "ตรวจข้อมูลและหลักฐาน", "S07", "A");
   await staff
-    .getByRole("button", { name: "บันทึกข้อมูล", exact: true })
+    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
     .click();
   await staff
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
@@ -178,8 +174,13 @@ try {
   assert.ok(report);
   const head = await login("demo.head");
   await route(head, "activity/" + report.id);
+  await head
+    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .click();
   await head.getByLabel("สถานะข้อมูล", { exact: true }).selectOption("ready");
-  await head.getByRole("button", { name: "บันทึกข้อมูล", exact: true }).click();
+  await head
+    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
+    .click();
   await head
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
@@ -229,7 +230,10 @@ try {
   await route(executive, "activity/" + report.id);
   assert.equal(
     await executive
-      .getByRole("button", { name: "บันทึกข้อมูล", exact: true })
+      .getByRole("button", {
+        name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/,
+        exact: false,
+      })
       .count(),
     0,
   );

@@ -195,26 +195,19 @@ try {
   assert.deepEqual(JSON.parse(hybridAccount.scopes), [2]);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "เพิ่มข้อมูล", exact: true }).click();
-  await page.getByRole("button", { name: /อัปโหลดไฟล์/ }).click();
+  await page.getByLabel("ข้อความรายงาน").fill("ประชุมเครือข่าย อสม.");
   await page.locator("input[type=file]").setInputFiles({
     name: "evidence.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
   });
-  await page.getByRole("button", { name: "ถัดไป", exact: true }).click();
+  await page.getByRole("button", { name: "ส่งรายงาน", exact: true }).click();
   await page
-    .getByRole("button", { name: /จัดข้อมูลเพื่อนำไปสรุปผลงาน/ })
-    .click();
-  await page.getByRole("button", { name: "ถัดไป", exact: true }).click();
-  await page
-    .getByLabel("ชื่อเรื่อง *", { exact: true })
-    .fill("ประชุมเครือข่าย อสม.");
-  await page
-    .getByRole("button", { name: "จัดเก็บและตรวจข้อมูล", exact: true })
-    .click();
-  await page
-    .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
+    .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
+  await page
+    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .click();
   assert.equal(
     await page.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     "ประชุมเครือข่าย อสม.",
@@ -286,7 +279,9 @@ try {
   await page.getByLabel("ชื่อผล 1", { exact: true }).fill("ผู้เข้าร่วม");
   await page.getByLabel("จำนวน 1", { exact: true }).fill("32");
   await page.getByLabel("สถานะข้อมูล", { exact: true }).selectOption("ready");
-  await page.getByRole("button", { name: "บันทึกข้อมูล", exact: true }).click();
+  await page
+    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
+    .click();
   await page
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
@@ -336,7 +331,7 @@ try {
       .getByRole("button", { name: "ประชุมเครือข่าย อสม.", exact: true })
       .click();
     await page
-      .getByRole("heading", { name: "รายละเอียดและตรวจแก้ข้อมูล", exact: true })
+      .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
       .waitFor();
     assert.equal(
       await page.evaluate(
@@ -359,6 +354,9 @@ try {
         .textContent(),
       "ลงพื้นที่ชุมชน",
     );
+    await page
+      .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+      .click();
     if (width === 390) {
       await page
         .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
@@ -435,7 +433,7 @@ try {
   await page.goto(origin + "/#activity/1");
   await page.reload();
   await page
-    .getByRole("heading", { name: "รายละเอียดและตรวจแก้ข้อมูล", exact: true })
+    .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
   // A real staff session receives its assignment from the administrator, never a selector.
   const staffContext = await browser.newContext({
@@ -455,10 +453,9 @@ try {
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
   await staff.goto(origin + "/#import");
-  await staff.getByRole("button", { name: /กรอกรายงานเอง/ }).click();
-  await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).waitFor();
-  await staff.goto(origin + "/#import");
-  await staff.getByRole("button", { name: /อัปโหลดไฟล์/ }).click();
+  await staff
+    .getByLabel("ข้อความรายงาน")
+    .fill("เยี่ยมบ้านผู้สูงอายุประจำเดือน");
   await staff.locator("input[type=file]").setInputFiles(
     ["first.pdf", "second.pdf"].map((name) => ({
       name,
@@ -466,29 +463,6 @@ try {
       buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
     })),
   );
-  await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
-  await staff
-    .getByRole("button", { name: /จัดข้อมูลเพื่อนำไปสรุปผลงาน/ })
-    .click();
-  await staff.getByRole("button", { name: "ถัดไป", exact: true }).click();
-  assert.equal(
-    await staff.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).inputValue(),
-    "ฝ่ายส่งเสริมสุขภาพ",
-  );
-  assert.equal(
-    await staff.getByLabel("งานที่รับผิดชอบ", { exact: true }).inputValue(),
-    "งานสาธารณสุขชุมชน",
-  );
-  assert.equal(
-    await staff
-      .getByLabel("งานที่รับผิดชอบ", { exact: true })
-      .getAttribute("readonly"),
-    "",
-  );
-  assert.equal(await staff.getByLabel("คำสำคัญ", { exact: true }).count(), 0);
-  await staff
-    .getByLabel("ชื่อเรื่อง *", { exact: true })
-    .fill("เยี่ยมบ้านผู้สูงอายุประจำเดือน");
   assert.equal(
     await staff.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -499,20 +473,25 @@ try {
     path: "test-results/staff-import-mobile.png",
     fullPage: true,
   });
+  await staff.getByRole("button", { name: "ส่งรายงาน", exact: true }).click();
   await staff
-    .getByRole("button", { name: "จัดเก็บและตรวจข้อมูล", exact: true })
-    .click();
-  await staff
-    .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
+    .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
-  assert.equal(
-    await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
-    "เยี่ยมบ้านผู้สูงอายุประจำเดือน",
-  );
   await staff.reload();
   await staff
-    .getByRole("heading", { name: "สร้างรายการงาน", exact: true })
+    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
     .waitFor();
+  assert.equal(
+    await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).isVisible(),
+    false,
+  );
+  await staff.screenshot({
+    path: "test-results/intake-review-mobile.png",
+    fullPage: true,
+  });
+  await staff
+    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .click();
   assert.equal(
     await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     "เยี่ยมบ้านผู้สูงอายุประจำเดือน",
@@ -521,19 +500,13 @@ try {
     await staff.getByLabel("งานที่รับผิดชอบ", { exact: true }).inputValue(),
     "งานสาธารณสุขชุมชน",
   );
-  assert.equal(
-    await staff
-      .getByLabel("ฝ่าย/กลุ่มงาน", { exact: true })
-      .getAttribute("readonly"),
-    "",
-  );
   await staff.setViewportSize({ width: 1440, height: 1000 });
   await staff.screenshot({
     path: "test-results/staff-report-desktop.png",
     fullPage: true,
   });
   await staff
-    .getByRole("button", { name: "บันทึกข้อมูล", exact: true })
+    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
     .click();
   await staff
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
@@ -553,9 +526,51 @@ try {
     .all(savedStaffReport.id);
   assert.equal(evidenceFiles.length, 2);
   for (const file of evidenceFiles) {
-    assert.equal(file.title, savedStaffReport.title);
+    assert.ok(["first.pdf", "second.pdf"].includes(file.title));
     assert.equal(file.work_id, assignedWork);
   }
+  await staff.goto(origin + "/#import");
+  await staff.locator("input[type=file]").setInputFiles({
+    name: "file-only.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+  });
+  await staff.getByRole("button", { name: "ส่งรายงาน", exact: true }).click();
+  await staff
+    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .waitFor();
+  const fileOnly = app.locals.db
+    .prepare("SELECT * FROM activities WHERE title='file-only.pdf'")
+    .get();
+  assert.equal(fileOnly.source_text, "");
+  assert.equal(fileOnly.status, "pending");
+  assert.equal(fileOnly.date, null);
+  await staff.goto(origin + "/#import");
+  await staff.getByLabel("ฝากไฟล์ไว้ค้นหาเท่านั้น").check();
+  const countBefore = app.locals.db
+    .prepare("SELECT count(*) n FROM activities")
+    .get().n;
+  await staff.locator("input[type=file]").setInputFiles({
+    name: "archive-only.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+  });
+  await staff.getByRole("button", { name: "ฝากไฟล์", exact: true }).click();
+  await staff
+    .getByRole("heading", { name: "คลังข้อมูล", exact: true })
+    .waitFor();
+  assert.equal(
+    app.locals.db.prepare("SELECT count(*) n FROM activities").get().n,
+    countBefore,
+  );
+  assert.equal(
+    app.locals.db
+      .prepare(
+        "SELECT purpose FROM files WHERE original_name='archive-only.pdf'",
+      )
+      .get().purpose,
+    "archive",
+  );
   await staffContext.close();
   // An admin-only account can manage settings and read audits, not author reports/news.
   app.locals.db

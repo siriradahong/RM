@@ -35,6 +35,7 @@ export function activity(db, row, user) {
   return {
     ...row,
     metrics: JSON.parse(row.metrics),
+    intake: Boolean(row.intake),
     can_edit: canEdit(user, row),
   };
 }
@@ -141,6 +142,27 @@ export function registerDataRoutes(app, db, dataDir) {
             .get(Number(req.params.id))
         : null;
     if (req.params.id && !record) throw httpError(404, "ไม่พบรายการงาน");
+    if (!record && input.intake_key) {
+      const existing = db
+        .prepare("SELECT * FROM activities WHERE intake_key=?")
+        .get(input.intake_key);
+      if (existing) {
+        if (existing.owner_id !== req.user.id)
+          throw httpError(409, "รหัสการส่งถูกใช้แล้ว");
+        return res.json(activity(db, existing, req.user));
+      }
+    }
+    if (!record && input.intake) {
+      if (!input.source_text.trim() && !input.file_ids.length)
+        throw httpError(400, "กรุณาส่งข้อความหรือแนบไฟล์");
+      if (input.status !== "pending")
+        throw httpError(400, "รายงานที่ส่งใหม่ต้องรอตรวจก่อนยืนยัน");
+      input.date = null;
+      input.metrics = [];
+      input.workers = "";
+      input.result = "";
+    }
+
     if (record && !Object.hasOwn(req.body, "work_id"))
       input.work_id = record.work_id;
     if (
@@ -258,6 +280,11 @@ export function registerDataRoutes(app, db, dataDir) {
             .run(...values, messages.length ? "line" : "web", req.user.id)
             .lastInsertRowid,
         );
+      if (!record && input.intake) {
+        db.prepare(
+          "UPDATE activities SET source_text=?,intake=1,intake_key=? WHERE id=?",
+        ).run(input.source_text, input.intake_key || null, recordId);
+      }
       for (const f of files)
         db.prepare("UPDATE files SET activity_id=? WHERE id=?").run(
           recordId,

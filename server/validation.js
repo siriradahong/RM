@@ -13,6 +13,9 @@ const date = z
   }, "วันที่ไม่ถูกต้อง");
 export const activitySchema = z
   .object({
+    source_text: z.string().max(20000).default(""),
+    intake: z.boolean().default(false),
+    intake_key: z.string().uuid().nullish(),
     title: z.string().trim().min(1).max(300),
     date: date.nullable().default(null),
     unit_id: id,

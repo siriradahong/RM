@@ -154,6 +154,62 @@ describe(
       delete process.env.LINE_CHANNEL_SECRET;
       delete process.env.LINE_REPORT_GROUP_ID;
     });
+    it("stores original submissions, excludes unreviewed totals and retries without duplicates", async () => {
+      const source =
+        "  ติดตามประเมิน 85 ราย\nวันที่และฝ่ายต้องตรวจจากต้นฉบับ  ";
+      const input = {
+        title: "ต้นฉบับที่ส่ง",
+        unit_id: 1,
+        intake: true,
+        intake_key: "54c3145a-3993-4c12-82f5-3f7e4db3a161",
+        source_text: source,
+        status: "pending",
+        metrics: [{ label: "เดา", value: 999, unit: "คน" }],
+        date: "2026-10-07",
+        workers: "ไม่ใช่ผู้ส่ง",
+      };
+      const created = await request("/activities", {
+        method: "POST",
+        body: input,
+      });
+      assert.equal(created.status, 201);
+      const row = created.json;
+      try {
+        assert.equal(row.source_text, source);
+        assert.equal(row.date, null);
+        assert.equal(row.workers, "");
+        assert.deepEqual(row.metrics, []);
+        assert.equal(row.status, "pending");
+        const retry = await request("/activities", {
+          method: "POST",
+          body: input,
+        });
+        assert.equal(retry.json.id, row.id);
+        const changed = await request("/activities/" + row.id, {
+          method: "PUT",
+          body: {
+            ...row,
+            title: "ตรวจแก้ชื่อแล้ว",
+            source_text: "ห้ามเขียนทับต้นฉบับ",
+          },
+        });
+        assert.equal(changed.status, 200);
+        assert.equal(changed.json.source_text, source);
+        const empty = await request("/activities", {
+          method: "POST",
+          body: { title: "ว่าง", unit_id: 1, intake: true },
+        });
+        assert.equal(empty.status, 400);
+        const premature = await request("/activities", {
+          method: "POST",
+          body: { ...payload(), intake: true, source_text: source },
+        });
+        assert.equal(premature.status, 400);
+      } finally {
+        app.locals.db.prepare("DELETE FROM activities WHERE id=?").run(row.id);
+      }
+    });
+
     it("provides the complete organization and preserves original unit IDs", async () => {
       const { json: meta } = await request("/meta");
       assert.equal(meta.units.filter((u) => u.kind === "section").length, 2);
