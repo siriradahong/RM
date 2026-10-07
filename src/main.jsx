@@ -1542,7 +1542,7 @@ function ImportPage() {
                 disabled={uploaded.current.size > 0}
                 onChange={(e) => setArchive(e.target.checked)}
               />{" "}
-              ฝากไฟล์ไว้ค้นหาเท่านั้น
+              เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน
             </label>
             <Notice>
               {archive
@@ -1568,7 +1568,7 @@ function ImportPage() {
               {busy
                 ? `กำลังจัดเก็บ ${progress}/${files.length} ไฟล์…`
                 : archive
-                  ? "ฝากไฟล์"
+                  ? "ฝากไฟล์ไว้ค้นหา"
                   : "ส่งรายงาน"}
             </Button>
           </fieldset>
@@ -2089,7 +2089,7 @@ function ActivityEditor({ id }) {
                 icon={Plus}
                 onClick={() => setAttach(true)}
               >
-                เชื่อมไฟล์
+                เพิ่มไฟล์แนบ
               </Button>
             )}
           </div>
@@ -2144,12 +2144,10 @@ function ActivityEditor({ id }) {
                     onClick={() => {
                       edit(k);
                       requestAnimationFrame(() =>
-                        document
-                          .getElementById("review-" + k)
-                          ?.scrollIntoView({
-                            behavior: "smooth",
-                            block: "center",
-                          }),
+                        document.getElementById("review-" + k)?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "center",
+                        }),
                       );
                     }}
                   >
@@ -2192,11 +2190,27 @@ function ActivityEditor({ id }) {
       )}
       {attach && (
         <AttachmentPicker
+          fresh={fresh}
+          excludedIds={evidence.map((f) => f.id)}
           onClose={() => setAttach(false)}
-          onPick={(f) => {
-            if (!evidence.some((x) => x.id === f.id)) {
-              setEvidence([...evidence, f]);
-              change("file_ids", [...form.file_ids, f.id]);
+          onPick={async (f) => {
+            if (evidence.some((x) => x.id === f.id)) return;
+            if (fresh) {
+              setEvidence((prev) => [...prev, f]);
+              setForm((prev) => ({
+                ...prev,
+                file_ids: [...prev.file_ids, f.id],
+              }));
+              notify("เลือกไฟล์แล้ว จะจัดเก็บพร้อมรายงาน");
+            } else {
+              const out = await api("/activities/" + id + "/attachments", {
+                method: "POST",
+                body: { file_id: f.id, version: form.version },
+              });
+              setEvidence((prev) => [...prev, out.file]);
+              setForm((prev) => ({ ...prev, version: out.version }));
+              setRecord((prev) => ({ ...prev, version: out.version }));
+              notify("เพิ่มไฟล์แนบแล้ว");
             }
             setAttach(false);
           }}
@@ -2316,33 +2330,174 @@ function CategoryCreator({ onClose, onCreated }) {
     </Modal>
   );
 }
-function AttachmentPicker({ onClose, onPick }) {
-  const r = useResource("/files?purpose=evidence&unlinked=1&mine=1&limit=100");
+function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
+  const { user, meta } = useApp();
+  const [mode, setMode] = useState("upload"),
+    [file, setFile] = useState(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [page, setPage] = useState(1),
+    [search, setSearch] = useState("");
+  const uploaded = useRef(null);
+  const unit = user.roles.includes("staff")
+    ? user.unit_id
+    : user.scopes[0] || user.unit_id;
+  const work = meta.works.find(
+    (w) => w.id === user.work_id && w.unit_id === unit,
+  )?.id;
+  const r = useResource(
+    "/files?" +
+      query({
+        attachable: "1",
+        ...(fresh ? { purpose: "evidence", mine: "1" } : {}),
+        page,
+        limit: 10,
+        q: search,
+      }),
+  );
+  async function attachExisting(f) {
+    setBusy(true);
+    setError("");
+    try {
+      await onPick(f);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function uploadFile(e) {
+    e.preventDefault();
+    if (!file || busy) return;
+    if (
+      file.size > 20 * 1024 * 1024 ||
+      !/\.(pdf|xlsx?|png|jpe?g|webp)$/i.test(file.name)
+    ) {
+      setError("รองรับ PDF, Excel และรูปภาพ สูงสุด 20 MB ต่อไฟล์");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (!uploaded.current) {
+        const body = new FormData();
+        body.append("file", file);
+        body.append("purpose", "evidence");
+        body.append("unit_id", unit);
+        if (work) body.append("work_id", work);
+        body.append("title", file.name.slice(0, 300));
+        uploaded.current = await api("/files", { method: "POST", body });
+      }
+      await onPick(uploaded.current);
+    } catch (e) {
+      setError(
+        e.message +
+          (uploaded.current
+            ? " — อัปโหลดแล้ว สามารถลองแนบอีกครั้งหรือเลือกจากคลังไฟล์ได้"
+            : ""),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <Modal title="เชื่อมไฟล์หลักฐานที่นำเข้า" onClose={onClose}>
-      <Resource resource={r}>
-        {(d) =>
-          d.items.length ? (
-            <div className="file-list">
-              {d.items.map((f) => (
-                <button key={f.id} onClick={() => onPick(f)}>
-                  <FileText size={20} />
-                  <span>{f.title}</span>
-                  <Plus size={18} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Empty
-              title="ไม่มีไฟล์หลักฐานที่ยังไม่เชื่อม"
-              children="นำเข้าไฟล์โดยเลือกจัดข้อมูลเพื่อสรุปผลงานก่อน"
+    <Modal
+      title="เพิ่มไฟล์แนบ"
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <Tabs
+        items={[
+          ["upload", "อัปโหลดจากเครื่อง"],
+          ["library", "เลือกจากคลังไฟล์"],
+        ]}
+        value={mode}
+        onChange={(v) => {
+          if (!busy) {
+            setMode(v);
+            setError("");
+          }
+        }}
+      />
+      {error && <Notice error>{error}</Notice>}
+      {mode === "upload" ? (
+        <form className="form" onSubmit={uploadFile}>
+          <Field label="เลือกไฟล์จากเครื่อง">
+            <input
+              type="file"
+              disabled={busy}
+              accept=".pdf,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+              onChange={(e) => {
+                setFile(e.target.files[0] || null);
+                uploaded.current = null;
+                setError("");
+              }}
             />
-          )
-        }
-      </Resource>
+          </Field>
+          <p className="muted">PDF, Excel หรือรูปภาพ · สูงสุด 20 MB ต่อไฟล์</p>
+          <Button primary type="submit" disabled={busy || !file || !unit}>
+            {busy ? "กำลังเพิ่มไฟล์…" : "อัปโหลดและแนบไฟล์"}
+          </Button>
+        </form>
+      ) : (
+        <>
+          <Field label="ค้นหาไฟล์ในคลัง">
+            <input
+              value={search}
+              disabled={busy}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="ชื่อไฟล์หรือคำสำคัญ"
+            />
+          </Field>
+          <p className="muted">
+            เฉพาะไฟล์ที่มีสิทธิ์และยังไม่แนบกับรายงานอื่น
+            ไฟล์ฝากเก็บจะคงต้นฉบับไว้ในคลัง
+          </p>
+          <Resource resource={r}>
+            {(d) => (
+              <>
+                {d.items.filter((f) => !excludedIds.includes(f.id)).length ? (
+                  <div className="file-list">
+                    {d.items
+                      .filter((f) => !excludedIds.includes(f.id))
+                      .map((f) => (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          key={f.id}
+                          onClick={() => attachExisting(f)}
+                        >
+                          <FileText size={20} />
+                          <span>{f.original_name || f.title}</span>
+                          <small>
+                            {f.purpose === "archive"
+                              ? "ไฟล์ฝากเก็บ"
+                              : "ไฟล์หลักฐาน"}
+                          </small>
+                          <Plus size={18} />
+                        </button>
+                      ))}
+                  </div>
+                ) : (
+                  <Empty
+                    title="ไม่มีไฟล์ที่เลือกแนบได้"
+                    children="อัปโหลดจากเครื่องได้ที่แท็บด้านบน"
+                  />
+                )}
+                <Pager data={d} onPage={setPage} />
+              </>
+            )}
+          </Resource>
+        </>
+      )}
     </Modal>
   );
 }
+
 function LineInbox() {
   const { meta, navigate, notify } = useApp();
   const [page, setPage] = useState(1),

@@ -154,6 +154,97 @@ describe(
       delete process.env.LINE_CHANNEL_SECRET;
       delete process.env.LINE_REPORT_GROUP_ID;
     });
+    it("attaches permitted files immediately and preserves archived originals", async () => {
+      const created = await request("/activities", {
+        method: "POST",
+        body: { title: "ทดสอบเพิ่มไฟล์แนบ", unit_id: 1, status: "pending" },
+      });
+      assert.equal(created.status, 201);
+      const report = created.json,
+        ids = [];
+      try {
+        const archiveForm = uploadForm();
+        archiveForm.set("purpose", "archive");
+        const archived = await request("/files", {
+          method: "POST",
+          body: archiveForm,
+        });
+        ids.push(archived.json.id);
+        const foreign = await request("/files", {
+          as: "outside",
+          method: "POST",
+          body: uploadForm(2),
+        });
+        ids.push(foreign.json.id);
+        const own = await request("/files", {
+          method: "POST",
+          body: uploadForm(),
+        });
+        ids.push(own.json.id);
+        const listed = await request("/files?attachable=1&limit=100");
+        assert.ok(listed.json.items.some((f) => f.id === archived.json.id));
+        assert.ok(!listed.json.items.some((f) => f.id === foreign.json.id));
+        const denied = await request(
+          "/activities/" + report.id + "/attachments",
+          {
+            method: "POST",
+            body: { file_id: foreign.json.id, version: report.version },
+          },
+        );
+        assert.equal(denied.status, 403);
+        const copied = await request(
+          "/activities/" + report.id + "/attachments",
+          {
+            method: "POST",
+            body: { file_id: archived.json.id, version: report.version },
+          },
+        );
+        assert.equal(copied.status, 201);
+        ids.push(copied.json.file.id);
+        assert.notEqual(copied.json.file.id, archived.json.id);
+        const original = app.locals.db
+          .prepare("SELECT * FROM files WHERE id=?")
+          .get(archived.json.id);
+        assert.equal(original.purpose, "archive");
+        assert.equal(original.activity_id, null);
+        assert.equal(copied.json.file.activity_id, report.id);
+        const stale = await request(
+          "/activities/" + report.id + "/attachments",
+          {
+            method: "POST",
+            body: { file_id: own.json.id, version: report.version },
+          },
+        );
+        assert.equal(stale.status, 409);
+        const attached = await request(
+          "/activities/" + report.id + "/attachments",
+          {
+            method: "POST",
+            body: { file_id: own.json.id, version: copied.json.version },
+          },
+        );
+        assert.equal(attached.status, 201);
+        const repeat = await request(
+          "/activities/" + report.id + "/attachments",
+          {
+            method: "POST",
+            body: { file_id: own.json.id, version: copied.json.version },
+          },
+        );
+        assert.equal(repeat.status, 200);
+        assert.equal(repeat.json.version, attached.json.version);
+        const detail = await request("/activities/" + report.id);
+        assert.equal(detail.json.files.length, 2);
+        assert.equal(detail.json.status, "pending");
+      } finally {
+        for (const id of ids)
+          app.locals.db.prepare("DELETE FROM files WHERE id=?").run(id);
+        app.locals.db
+          .prepare("DELETE FROM activities WHERE id=?")
+          .run(report.id);
+      }
+    });
+
     it("stores original submissions, excludes unreviewed totals and retries without duplicates", async () => {
       const source =
         "  ติดตามประเมิน 85 ราย\nวันที่และฝ่ายต้องตรวจจากต้นฉบับ  ";

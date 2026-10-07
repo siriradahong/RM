@@ -489,6 +489,17 @@ try {
       buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
     })),
   );
+  await staff
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "submitted-photo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN7sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+
   assert.equal(
     await staff.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -503,6 +514,15 @@ try {
   await staff
     .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
+  await staff.locator('.review-files img[alt="submitted-photo.png"]').waitFor();
+  assert.equal(
+    app.locals.db
+      .prepare(
+        "SELECT count(*) n FROM files WHERE activity_id=(SELECT id FROM activities WHERE title=?)",
+      )
+      .get("เยี่ยมบ้านผู้สูงอายุประจำเดือน").n,
+    3,
+  );
   await staff.reload();
   await staff
     .getByRole("button", { name: "ยืนยันข้อมูลเพื่อสรุป", exact: true })
@@ -582,9 +602,11 @@ try {
   const evidenceFiles = app.locals.db
     .prepare("SELECT title,work_id FROM files WHERE activity_id=?")
     .all(savedStaffReport.id);
-  assert.equal(evidenceFiles.length, 2);
+  assert.equal(evidenceFiles.length, 3);
   for (const file of evidenceFiles) {
-    assert.ok(["first.pdf", "second.pdf"].includes(file.title));
+    assert.ok(
+      ["first.pdf", "second.pdf", "submitted-photo.png"].includes(file.title),
+    );
     assert.equal(file.work_id, assignedWork);
   }
   await staff.goto(origin + "/#import");
@@ -603,8 +625,32 @@ try {
   assert.equal(fileOnly.source_text, "");
   assert.equal(fileOnly.status, "pending");
   assert.equal(fileOnly.date, null);
+  await staff
+    .getByRole("button", { name: "เพิ่มไฟล์แนบ", exact: true })
+    .click();
+  await staff.getByLabel("เลือกไฟล์จากเครื่อง").setInputFiles({
+    name: "extra-proof.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN7sAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await staff
+    .getByRole("button", { name: "อัปโหลดและแนบไฟล์", exact: true })
+    .click();
+  await staff.getByRole("dialog").waitFor({ state: "hidden" });
+  await staff.reload();
+  await staff.locator(".review-files img").waitFor();
+  assert.equal(
+    app.locals.db
+      .prepare("SELECT count(*) n FROM files WHERE activity_id=?")
+      .get(fileOnly.id).n,
+    2,
+  );
+
   await staff.goto(origin + "/#import");
-  await staff.getByLabel("ฝากไฟล์ไว้ค้นหาเท่านั้น").check();
+  await staff.getByLabel("เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน").check();
   const countBefore = app.locals.db
     .prepare("SELECT count(*) n FROM activities")
     .get().n;
@@ -613,7 +659,9 @@ try {
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
   });
-  await staff.getByRole("button", { name: "ฝากไฟล์", exact: true }).click();
+  await staff
+    .getByRole("button", { name: "ฝากไฟล์ไว้ค้นหา", exact: true })
+    .click();
   await staff
     .getByRole("heading", { name: "คลังข้อมูล", exact: true })
     .waitFor();
@@ -625,6 +673,49 @@ try {
     app.locals.db
       .prepare(
         "SELECT purpose FROM files WHERE original_name='archive-only.pdf'",
+      )
+      .get().purpose,
+    "archive",
+  );
+
+  await staff.goto(origin + "/#activity/" + fileOnly.id);
+  await staff
+    .getByRole("button", { name: "เพิ่มไฟล์แนบ", exact: true })
+    .click();
+  await staff
+    .getByRole("tab", { name: "เลือกจากคลังไฟล์", exact: true })
+    .click();
+  await staff.setViewportSize({ width: 390, height: 844 });
+  assert.equal(
+    await staff.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await staff.screenshot({
+    path: "test-results/attachment-library-mobile.png",
+    fullPage: false,
+  });
+  await staff
+    .getByRole("dialog")
+    .getByRole("button", { name: /archive-only.pdf/ })
+    .click();
+  await staff.getByRole("dialog").waitFor({ state: "hidden" });
+  await staff.reload();
+  await staff
+    .locator(".review-files")
+    .getByText("archive-only.pdf", { exact: true })
+    .waitFor();
+  assert.equal(
+    app.locals.db
+      .prepare("SELECT count(*) n FROM files WHERE activity_id=?")
+      .get(fileOnly.id).n,
+    3,
+  );
+  assert.equal(
+    app.locals.db
+      .prepare(
+        "SELECT purpose FROM files WHERE original_name='archive-only.pdf' AND activity_id IS NULL",
       )
       .get().purpose,
     "archive",

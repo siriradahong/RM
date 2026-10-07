@@ -1,6 +1,6 @@
 import multer from "multer";
 import { randomUUID } from "node:crypto";
-import { writeFile, unlink } from "node:fs/promises";
+import { writeFile, unlink, copyFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileTypeFromBuffer } from "file-type";
 import { activitySchema } from "./validation.js";
@@ -319,6 +319,93 @@ export function registerDataRoutes(app, db, dataDir) {
   }
   app.post("/api/activities", saveActivity);
   app.put("/api/activities/:id", saveActivity);
+  app.post("/api/activities/:id/attachments", async (req, res) => {
+    const reportId = Number(req.params.id),
+      fileId = Number(req.body.file_id);
+    const check = () => {
+      const report = db
+        .prepare("SELECT * FROM activities WHERE id=?")
+        .get(reportId);
+      const file = db.prepare("SELECT * FROM files WHERE id=?").get(fileId);
+      if (!report || !file) throw httpError(404, "ไม่พบรายงานหรือไฟล์");
+      if (!canEdit(req.user, report) || !canEdit(req.user, file))
+        throw httpError(403, "ไม่มีสิทธิ์แนบไฟล์นี้");
+      if (file.activity_id === reportId) return { report, file, already: true };
+      if (file.activity_id) throw httpError(409, "ไฟล์นี้แนบกับรายงานอื่นแล้ว");
+      if (report.version !== req.body.version)
+        throw httpError(
+          409,
+          "รายงานมีการแก้ไขแล้ว กรุณาโหลดใหม่ก่อนเพิ่มไฟล์แนบ",
+        );
+      return { report, file, already: false };
+    };
+    const initial = check();
+    if (initial.already)
+      return res.json({
+        file: { ...initial.file, storage_name: undefined },
+        version: initial.report.version,
+      });
+    let copied = null;
+    try {
+      if (initial.file.purpose === "archive") {
+        copied =
+          randomUUID() + "." + initial.file.storage_name.split(".").at(-1);
+        await copyFile(
+          resolve(dataDir, "uploads", initial.file.storage_name),
+          resolve(dataDir, "uploads", copied),
+        );
+      }
+      const result = transaction(db, () => {
+        const { report, file, already } = check();
+        if (already) throw httpError(409, "ไฟล์ถูกแนบแล้ว กรุณาโหลดใหม่");
+        let id = file.id;
+        if (copied) {
+          id = Number(
+            db
+              .prepare(
+                "INSERT INTO files(original_name,storage_name,mime,size,title,keywords,purpose,unit_id,work_id,owner_id,activity_id) VALUES(?,?,?,?,?,?,'evidence',?,?,?,?)",
+              )
+              .run(
+                file.original_name,
+                copied,
+                file.mime,
+                file.size,
+                file.title,
+                file.keywords,
+                report.unit_id,
+                report.work_id,
+                req.user.id,
+                reportId,
+              ).lastInsertRowid,
+          );
+        } else
+          db.prepare("UPDATE files SET activity_id=? WHERE id=?").run(
+            reportId,
+            id,
+          );
+        db.prepare(
+          "UPDATE activities SET version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+        ).run(reportId);
+        writeAudit(db, req.user, "เพิ่มไฟล์แนบ", "activity", reportId, null, {
+          file_id: id,
+          source_file_id: file.id,
+          archive_preserved: Boolean(copied),
+        });
+        return {
+          file: {
+            ...db.prepare("SELECT * FROM files WHERE id=?").get(id),
+            storage_name: undefined,
+          },
+          version: report.version + 1,
+        };
+      });
+      res.status(201).json(result);
+    } catch (e) {
+      if (copied)
+        await unlink(resolve(dataDir, "uploads", copied)).catch(() => {});
+      throw e;
+    }
+  });
   app.get("/api/dashboard", (req, res) => {
     const { where, params } = whereFor(req);
     const rows = db.prepare(`${selectActivity}${where}`).all(...params);
@@ -513,6 +600,22 @@ export function registerDataRoutes(app, db, dataDir) {
       params.push(...Array(2).fill(`%${String(req.query.q).slice(0, 200)}%`));
     }
     if (req.query.unlinked === "1") conditions.push("f.activity_id IS NULL");
+    if (req.query.attachable === "1") {
+      conditions.push("f.activity_id IS NULL");
+      const access = [];
+      if (req.user.roles.includes("staff")) {
+        access.push("f.owner_id=?");
+        params.push(req.user.id);
+      }
+      if (req.user.roles.includes("head") && req.user.scopes.length) {
+        access.push(
+          `f.unit_id IN (${req.user.scopes.map(() => "?").join(",")})`,
+        );
+        params.push(...req.user.scopes);
+      }
+      conditions.push(access.length ? "(" + access.join(" OR ") + ")" : "0=1");
+    }
+
     const where = conditions.length ? " WHERE " + conditions.join(" AND ") : "",
       { page, limit } = pagination(req);
     const total = db
