@@ -194,7 +194,8 @@ try {
   assert.equal(hybridAccount.work_id, assignedWork);
   assert.deepEqual(JSON.parse(hybridAccount.scopes), [2]);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "นำเข้าข้อมูล", exact: true }).click();
+  await page.getByRole("button", { name: "เพิ่มข้อมูล", exact: true }).click();
+  await page.getByRole("button", { name: /อัปโหลดไฟล์/ }).click();
   await page.locator("input[type=file]").setInputFiles({
     name: "evidence.pdf",
     mimeType: "application/pdf",
@@ -454,6 +455,10 @@ try {
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
   await staff.goto(origin + "/#import");
+  await staff.getByRole("button", { name: /กรอกรายงานเอง/ }).click();
+  await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).waitFor();
+  await staff.goto(origin + "/#import");
+  await staff.getByRole("button", { name: /อัปโหลดไฟล์/ }).click();
   await staff.locator("input[type=file]").setInputFiles(
     ["first.pdf", "second.pdf"].map((name) => ({
       name,
@@ -589,7 +594,7 @@ try {
   assert.equal(await admin.getByRole("tab").count(), 3);
   assert.equal(
     await admin
-      .getByRole("button", { name: "นำเข้าข้อมูล", exact: true })
+      .getByRole("button", { name: "เพิ่มข้อมูล", exact: true })
       .count(),
     0,
   );

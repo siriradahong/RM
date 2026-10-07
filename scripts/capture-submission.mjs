@@ -90,6 +90,7 @@ try {
   await capture(anon, "01-login", "เข้าสู่ระบบ", "S01", "ร่วมทุก Flow");
   const staff = await login("demo.staff.health-promotion");
   await route(staff, "import");
+  await staff.getByRole("button", { name: /อัปโหลดไฟล์/ }).click();
   await staff
     .locator("input[type=file]")
     .setInputFiles([

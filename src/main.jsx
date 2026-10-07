@@ -429,7 +429,7 @@ function App() {
     ["library", "คลังข้อมูล", FolderOpen],
     ...(canWrite
       ? [
-          ["import", "นำเข้าข้อมูล", Upload],
+          ["import", "เพิ่มข้อมูล", Plus],
           ["inbox", "รายงานจาก LINE", Inbox],
         ]
       : []),
@@ -892,20 +892,9 @@ function Dashboard({ mode }) {
         description="ข้อมูลการปฏิบัติงานที่บันทึกแล้ว เพื่อการตรวจสอบและสรุปผลร่วมกัน"
         action={
           canWrite && (
-            <div className="actions">
-              <Button
-                icon={FileText}
-                onClick={() => {
-                  sessionStorage.removeItem("rm-new-evidence");
-                  navigate("activity/new");
-                }}
-              >
-                เพิ่มรายการงาน
-              </Button>
-              <Button primary icon={Plus} onClick={() => navigate("import")}>
-                นำเข้าข้อมูล
-              </Button>
-            </div>
+            <Button primary icon={Plus} onClick={() => navigate("import")}>
+              เพิ่มข้อมูล
+            </Button>
           )
         }
       />
@@ -1205,7 +1194,7 @@ function Library() {
         action={
           canWrite && (
             <Button primary icon={Plus} onClick={() => navigate("import")}>
-              นำเข้าข้อมูล
+              เพิ่มข้อมูล
             </Button>
           )
         }
@@ -1383,7 +1372,7 @@ function FilePreview({ file, onClose }) {
 
 function ImportPage() {
   const { meta, user, navigate, notify } = useApp();
-  const [step, setStep] = useState(1),
+  const [step, setStep] = useState(0),
     [files, setFiles] = useState([]),
     [purpose, setPurpose] = useState("archive"),
     [unit, setUnit] = useState(user.unit_id || user.scopes[0] || ""),
@@ -1477,10 +1466,56 @@ function ImportPage() {
       setBusy(false);
     }
   }
+  if (step === 0)
+    return (
+      <>
+        <Header
+          title="เพิ่มข้อมูล"
+          description="เลือกวิธีเพิ่มข้อมูลการปฏิบัติงาน"
+        />
+        <section className="panel import-panel">
+          <div className="choice-list">
+            <button
+              type="button"
+              className="choice"
+              onClick={() => {
+                sessionStorage.removeItem("rm-new-evidence");
+                navigate("activity/new");
+              }}
+            >
+              <FileText size={28} />
+              <div>
+                <h3>กรอกรายงานเอง</h3>
+                <p>กรอกชื่อเรื่องและผลการปฏิบัติงาน แล้วแนบหลักฐานได้ภายหลัง</p>
+              </div>
+              <ArrowRight size={20} />
+            </button>
+            <button type="button" className="choice" onClick={() => setStep(1)}>
+              <Upload size={28} />
+              <div>
+                <h3>อัปโหลดไฟล์</h3>
+                <p>
+                  นำเข้าเอกสารหรือรูปภาพ
+                  เพื่อเก็บในคลังหรือสร้างรายงานพร้อมหลักฐาน
+                </p>
+              </div>
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </section>
+      </>
+    );
   return (
     <>
       <Header
-        title="นำเข้าข้อมูล"
+        title="อัปโหลดไฟล์"
+        action={
+          step === 1 && (
+            <Button onClick={() => setStep(0)}>
+              กลับไปเลือกวิธีเพิ่มข้อมูล
+            </Button>
+          )
+        }
         description="เก็บไฟล์ไว้ค้นหา หรือเชื่อมไฟล์เป็นหลักฐานของรายการงาน"
       />
       <div className="steps">
