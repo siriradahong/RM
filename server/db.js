@@ -89,6 +89,15 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
         INSERT INTO schema_migrations(version) VALUES(5);`);
     });
   }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=6").get()
+  ) {
+    transaction(db, () => {
+      db.exec(
+        "ALTER TABLE files ADD COLUMN description TEXT NOT NULL DEFAULT ''; INSERT INTO schema_migrations(version) VALUES(6);",
+      );
+    });
+  }
   return { db, dataDir };
 }
 export function transaction(db, fn) {

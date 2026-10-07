@@ -16,7 +16,12 @@ import { downloadLineMedia } from "./news-routes.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 10, fieldSize: 4000 },
+  limits: {
+    fileSize: 20 * 1024 * 1024,
+    files: 1,
+    fields: 10,
+    fieldSize: 80000,
+  },
 });
 const allowed = new Set([
   "application/pdf",
@@ -378,6 +383,10 @@ export function registerDataRoutes(app, db, dataDir) {
                 reportId,
               ).lastInsertRowid,
           );
+          db.prepare("UPDATE files SET description=? WHERE id=?").run(
+            file.description,
+            id,
+          );
         } else
           db.prepare("UPDATE files SET activity_id=? WHERE id=?").run(
             reportId,
@@ -480,7 +489,17 @@ export function registerDataRoutes(app, db, dataDir) {
     },
     upload.single("file"),
     async (req, res) => {
-      if (!req.file) throw httpError(400, "กรุณาเลือกไฟล์");
+      let description = req.body.description ?? "";
+      if (typeof description !== "string" || description.length > 20000)
+        throw httpError(400, "ข้อความต้องไม่เกิน 20,000 ตัวอักษร");
+      description = description.replace(/\r\n/g, "\n");
+      const textOnly =
+        !req.file && req.body.purpose === "archive" && description.trim();
+      if (textOnly) {
+        const buffer = Buffer.from(description, "utf8");
+        req.file = { buffer, size: buffer.length, originalname: "note.txt" };
+      }
+      if (!req.file) throw httpError(400, "กรุณาพิมพ์ข้อความหรือเลือกไฟล์");
       const unit = Number(req.body.unit_id),
         purpose = req.body.purpose;
       if (!canCreate(req.user, unit))
@@ -519,11 +538,13 @@ export function registerDataRoutes(app, db, dataDir) {
         throw httpError(400, "หน่วยงานไม่พร้อมใช้งาน");
       let detected;
       try {
-        detected = await fileTypeFromBuffer(req.file.buffer);
+        detected = textOnly
+          ? { mime: "text/plain", ext: "txt" }
+          : await fileTypeFromBuffer(req.file.buffer);
       } catch {
         throw httpError(415, "ไฟล์ไม่สมบูรณ์หรือไม่รองรับ");
       }
-      if (!detected || !allowed.has(detected.mime))
+      if (!detected || (!textOnly && !allowed.has(detected.mime)))
         throw httpError(415, "รองรับ PDF, Excel, JPG, PNG และ WebP เท่านั้น");
       if (
         detected.mime === "application/x-cfb" &&
@@ -565,6 +586,10 @@ export function registerDataRoutes(app, db, dataDir) {
                 req.user.id,
               ).lastInsertRowid,
           );
+          db.prepare("UPDATE files SET description=? WHERE id=?").run(
+            description,
+            id,
+          );
           const r = db.prepare("SELECT * FROM files WHERE id=?").get(id);
           writeAudit(db, req.user, "นำเข้าไฟล์", "file", id, null, {
             title,
@@ -596,8 +621,10 @@ export function registerDataRoutes(app, db, dataDir) {
       params.push(req.user.id);
     }
     if (req.query.q) {
-      conditions.push("(f.title LIKE ? OR f.keywords LIKE ?)");
-      params.push(...Array(2).fill(`%${String(req.query.q).slice(0, 200)}%`));
+      conditions.push(
+        "(f.title LIKE ? OR f.keywords LIKE ? OR f.description LIKE ?)",
+      );
+      params.push(...Array(3).fill(`%${String(req.query.q).slice(0, 200)}%`));
     }
     if (req.query.unlinked === "1") conditions.push("f.activity_id IS NULL");
     if (req.query.attachable === "1") {
@@ -627,7 +654,7 @@ export function registerDataRoutes(app, db, dataDir) {
       limit,
       items: db
         .prepare(
-          `SELECT f.id,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.activity_id,f.unit_id,f.work_id,f.owner_id,f.created_at,u.name AS unit_name,w.name AS work_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id LEFT JOIN works w ON w.id=f.work_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
+          `SELECT f.id,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.description,f.activity_id,f.unit_id,f.work_id,f.owner_id,f.created_at,u.name AS unit_name,w.name AS work_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id LEFT JOIN works w ON w.id=f.work_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
         )
         .all(...params, limit, (page - 1) * limit),
     });

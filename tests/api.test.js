@@ -154,6 +154,58 @@ describe(
       delete process.env.LINE_CHANNEL_SECRET;
       delete process.env.LINE_REPORT_GROUP_ID;
     });
+    it("stores and searches archive text with or without a file without creating activities", async () => {
+      const before = app.locals.db
+        .prepare("SELECT count(*) n FROM activities")
+        .get().n;
+      const ids = [];
+      try {
+        const caption = "  บันทึกเอกสารเดิม\nคำค้นเฉพาะทดสอบข้อความ  ";
+        const withFile = uploadForm();
+        withFile.set("purpose", "archive");
+        withFile.set("description", caption);
+        const first = await request("/files", {
+          method: "POST",
+          body: withFile,
+        });
+        assert.equal(first.status, 201);
+        ids.push(first.json.id);
+        assert.equal(first.json.description, caption);
+        const body = new FormData();
+        body.append("purpose", "archive");
+        body.append("unit_id", "1");
+        body.append("title", "ข้อความฝากเก็บ");
+        body.append("description", "รายละเอียดภาษาไทย\n" + "ท".repeat(12000));
+        const second = await request("/files", { method: "POST", body });
+        assert.equal(second.status, 201);
+        ids.push(second.json.id);
+        assert.equal(second.json.mime, "text/plain");
+        assert.equal(second.json.activity_id, null);
+        assert.equal(second.json.description, body.get("description"));
+        const found = await request(
+          "/files?q=" + encodeURIComponent("คำค้นเฉพาะทดสอบข้อความ"),
+        );
+        assert.ok(found.json.items.some((f) => f.id === first.json.id));
+        body.set("description", " ");
+        assert.equal(
+          (await request("/files", { method: "POST", body })).status,
+          400,
+        );
+        body.set("description", "ก".repeat(20001));
+        assert.equal(
+          (await request("/files", { method: "POST", body })).status,
+          400,
+        );
+        assert.equal(
+          app.locals.db.prepare("SELECT count(*) n FROM activities").get().n,
+          before,
+        );
+      } finally {
+        for (const id of ids)
+          app.locals.db.prepare("DELETE FROM files WHERE id=?").run(id);
+      }
+    });
+
     it("attaches permitted files immediately and preserves archived originals", async () => {
       const created = await request("/activities", {
         method: "POST",

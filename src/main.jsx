@@ -1342,6 +1342,12 @@ function Library() {
 function FilePreview({ file, onClose }) {
   return (
     <Modal title={file.title || file.original_name} onClose={onClose} wide>
+      {file.description && (
+        <section className="source-message">
+          <h3>ข้อความที่บันทึกไว้</h3>
+          <p style={{ whiteSpace: "pre-wrap" }}>{file.description}</p>
+        </section>
+      )}
       {file.mime.startsWith("image/") ? (
         <img
           className="preview-image"
@@ -1354,9 +1360,9 @@ function FilePreview({ file, onClose }) {
           title={file.title}
           src={fileUrl(file.id)}
         />
-      ) : (
+      ) : file.mime !== "text/plain" ? (
         <Empty title="ดาวน์โหลดเพื่อเปิดในโปรแกรม Excel" />
-      )}
+      ) : null}
       <div className="modal-actions">
         <span className="muted">
           {bytes(file.size)} · {fmt(file.created_at)}
@@ -1408,12 +1414,8 @@ function ImportPage() {
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
-    if ((!text.trim() && !files.length) || (archive && !files.length)) {
-      setError(
-        archive
-          ? "กรุณาแนบไฟล์ที่ต้องการฝาก"
-          : "พิมพ์ข้อความหรือแนบไฟล์อย่างน้อยหนึ่งอย่าง",
-      );
+    if (!text.trim() && !files.length) {
+      setError("พิมพ์ข้อความหรือแนบไฟล์อย่างน้อยหนึ่งอย่าง");
       return;
     }
     setBusy(true);
@@ -1431,6 +1433,7 @@ function ImportPage() {
           body.append("unit_id", unit);
           if (work) body.append("work_id", work);
           body.append("title", file.name.slice(0, 300));
+          if (archive) body.append("description", text);
           id = (await api("/files", { method: "POST", body })).id;
           uploaded.current.set(file, id);
         }
@@ -1438,8 +1441,17 @@ function ImportPage() {
         setProgress(ids.length);
       }
       if (archive) {
+        if (!files.length) {
+          const body = new FormData();
+          body.append("purpose", "archive");
+          body.append("unit_id", unit);
+          if (work) body.append("work_id", work);
+          body.append("title", title);
+          body.append("description", text);
+          await api("/files", { method: "POST", body });
+        }
         sessionStorage.setItem("rm-library-tab", "files");
-        notify("ฝากไฟล์เข้าคลังแล้ว ไม่นับเป็นกิจกรรม");
+        notify("บันทึกเข้าคลังแล้ว ไม่รวมในสรุปผลงาน");
         navigate("library");
       } else {
         const out = await api("/activities", {
@@ -1482,18 +1494,16 @@ function ImportPage() {
       <section className="panel import-panel">
         <form className="form" onSubmit={submit}>
           <fieldset disabled={busy || needsAssignment || !unit}>
-            {!archive && (
-              <Field label="ข้อความรายงาน">
-                <textarea
-                  rows={8}
-                  maxLength={20000}
-                  value={text}
-                  disabled={uploaded.current.size > 0}
-                  placeholder="พิมพ์หรือวางรายงานเหมือนที่ส่งใน LINE… หากรายละเอียดอยู่ในไฟล์แล้ว ส่งไฟล์อย่างเดียวได้"
-                  onChange={(e) => setText(e.target.value)}
-                />
-              </Field>
-            )}
+            <Field label="ข้อความรายงาน">
+              <textarea
+                rows={8}
+                maxLength={20000}
+                value={text}
+                disabled={uploaded.current.size > 0}
+                placeholder="พิมพ์หรือวางรายงานเหมือนที่ส่งใน LINE… หากรายละเอียดอยู่ในไฟล์แล้ว ส่งไฟล์อย่างเดียวได้"
+                onChange={(e) => setText(e.target.value)}
+              />
+            </Field>
             <label
               className="dropzone"
               onDragOver={(e) => e.preventDefault()}
@@ -1546,7 +1556,7 @@ function ImportPage() {
             </label>
             <Notice>
               {archive
-                ? "เก็บไฟล์ในคลัง ไม่สร้างรายงานและไม่นับยอดกิจกรรม"
+                ? "เก็บข้อความและไฟล์ไว้ค้นหา ส่งข้อความอย่างเดียวได้ ไม่สร้างรายงานและไม่รวมในสรุปผลงาน"
                 : "เก็บข้อความและไฟล์ต้นฉบับก่อน ขณะนี้ยังไม่เชื่อม AI/OCR จึงยังไม่แยกข้อมูลจากข้อความหรือเอกสารอัตโนมัติ รายงานจะรอตรวจและยังไม่รวมยอดบนแดชบอร์ด"}
             </Notice>
             <p className="muted">
@@ -1559,16 +1569,14 @@ function ImportPage() {
               primary
               type="submit"
               icon={Upload}
-              disabled={
-                busy ||
-                (!text.trim() && !files.length) ||
-                (archive && !files.length)
-              }
+              disabled={busy || (!text.trim() && !files.length)}
             >
               {busy
                 ? `กำลังจัดเก็บ ${progress}/${files.length} ไฟล์…`
                 : archive
-                  ? "ฝากไฟล์ไว้ค้นหา"
+                  ? files.length
+                    ? "ฝากไฟล์ไว้ค้นหา"
+                    : "บันทึกข้อความไว้ค้นหา"
                   : "ส่งรายงาน"}
             </Button>
           </fieldset>

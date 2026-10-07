@@ -489,16 +489,14 @@ try {
       buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
     })),
   );
-  await staff
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "submitted-photo.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN7sAAAAASUVORK5CYII=",
-        "base64",
-      ),
-    });
+  await staff.locator("input[type=file]").setInputFiles({
+    name: "submitted-photo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN7sAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
 
   assert.equal(
     await staff.evaluate(
@@ -651,6 +649,16 @@ try {
 
   await staff.goto(origin + "/#import");
   await staff.getByLabel("เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน").check();
+  await staff
+    .getByLabel("ข้อความรายงาน")
+    .fill("ข้อความประกอบไฟล์สำหรับค้นหาย้อนหลัง");
+  await staff.getByLabel("เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน").uncheck();
+  assert.equal(
+    await staff.getByLabel("ข้อความรายงาน").inputValue(),
+    "ข้อความประกอบไฟล์สำหรับค้นหาย้อนหลัง",
+  );
+  await staff.getByLabel("เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน").check();
+
   const countBefore = app.locals.db
     .prepare("SELECT count(*) n FROM activities")
     .get().n;
@@ -720,6 +728,42 @@ try {
       .get().purpose,
     "archive",
   );
+
+  const originalArchive = app.locals.db
+    .prepare(
+      "SELECT description FROM files WHERE original_name='archive-only.pdf' AND activity_id IS NULL",
+    )
+    .get();
+  assert.equal(
+    originalArchive.description,
+    "ข้อความประกอบไฟล์สำหรับค้นหาย้อนหลัง",
+  );
+  await staff.goto(origin + "/#import");
+  await staff.getByLabel("เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน").check();
+  await staff
+    .getByLabel("ข้อความรายงาน")
+    .fill("บันทึกข้อความอย่างเดียว\nใช้ค้นหาข้อมูลเก่า");
+  const textCountBefore = app.locals.db
+    .prepare("SELECT count(*) n FROM activities")
+    .get().n;
+  await staff
+    .getByRole("button", { name: "บันทึกข้อความไว้ค้นหา", exact: true })
+    .click();
+  await staff
+    .getByRole("button", { name: "บันทึกข้อความอย่างเดียว", exact: true })
+    .click();
+  await staff
+    .getByRole("dialog")
+    .getByText("บันทึกข้อความอย่างเดียว\nใช้ค้นหาข้อมูลเก่า", { exact: true })
+    .waitFor();
+  assert.equal(
+    app.locals.db.prepare("SELECT count(*) n FROM activities").get().n,
+    textCountBefore,
+  );
+  await staff.screenshot({
+    path: "test-results/archive-text-mobile.png",
+    fullPage: false,
+  });
   await staffContext.close();
   // An admin-only account can manage settings and read audits, not author reports/news.
   app.locals.db
