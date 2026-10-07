@@ -146,7 +146,7 @@ function Badge({ status, children }) {
       {children ||
         {
           ready: "พร้อมสรุป",
-          pending: "รอตรวจข้อมูล",
+          pending: "รอยืนยันข้อมูล",
           draft: "ฉบับร่าง",
           published: "เผยแพร่แล้ว",
           sent: "LINE รับคำขอแล้ว",
@@ -933,7 +933,7 @@ function Dashboard({ mode }) {
               </button>
               <button className="stat" onClick={() => drill("pending")}>
                 <div>
-                  <span>รายการรอตรวจข้อมูล</span>
+                  <span>รายการรอยืนยันข้อมูล</span>
                   <Clock size={23} />
                 </div>
                 <strong>
@@ -1240,7 +1240,7 @@ function Library() {
           >
             <option value="">ทุกสถานะ</option>
             <option value="ready">พร้อมสรุป</option>
-            <option value="pending">รอตรวจข้อมูล</option>
+            <option value="pending">รอยืนยันข้อมูล</option>
           </select>
           <select
             aria-label="แหล่งที่มา"
@@ -1459,7 +1459,7 @@ function ImportPage() {
             metrics: [],
           },
         });
-        notify("รับรายงานแล้ว เก็บต้นฉบับไว้รอตรวจข้อมูล");
+        notify("รับรายงานแล้ว เก็บต้นฉบับไว้รอยืนยันข้อมูล");
         navigate("activity/" + out.id);
       }
     } catch (e) {
@@ -1612,12 +1612,17 @@ function ActivityEditor({ id }) {
     [evidence, setEvidence] = useState([]),
     [attach, setAttach] = useState(false),
     [addCategory, setAddCategory] = useState(false),
-    [detailsOpen, setDetailsOpen] = useState(false);
+    [editing, setEditing] = useState({}),
+    [fieldErrors, setFieldErrors] = useState({}),
+    [extraOpen, setExtraOpen] = useState(false);
   const newRef = useRef(null);
   useEffect(() => {
     let alive = true;
     setForm(null);
     setError("");
+    setEditing({});
+    setFieldErrors({});
+    setExtraOpen(false);
     if (fresh) {
       let extra = {};
       try {
@@ -1661,29 +1666,84 @@ function ActivityEditor({ id }) {
   const lockedWork =
     user.roles.includes("staff") && !hasHeadScope(user, form?.unit_id);
   const needsAssignment = fresh && lockedWork && !assignedWorkReady(user, meta);
-  const change = (key, value) => setForm((f) => ({ ...f, [key]: value }));
-  async function save(e) {
-    e.preventDefault();
+  const change = (key, value) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setFieldErrors((errors) => ({ ...errors, [key]: "" }));
+  };
+  function edit(key) {
+    setEditing((e) => ({ ...e, [key]: true }));
+    if (["category_id", "area", "workers"].includes(key)) setExtraOpen(true);
+  }
+  async function save(status) {
+    if (busy || !editable) return;
+    const missing = {};
+    if (!form.title.trim()) missing.title = "กรุณาระบุชื่อกิจกรรม";
+    if (status === "ready") {
+      for (const [key, label] of [
+        ["date", "วันที่กิจกรรม"],
+        ["category_id", "ประเภทงาน"],
+        ["area", "พื้นที่"],
+        ["workers", "ผู้ปฏิบัติงานจากต้นฉบับ"],
+        ["result", "ผลการดำเนินงาน"],
+      ])
+        if (!String(form[key] || "").trim())
+          missing[key] = "กรุณายืนยัน" + label;
+    }
+    if (
+      form.metrics.some(
+        (m) =>
+          !m.label.trim() ||
+          m.value === "" ||
+          !Number.isFinite(Number(m.value)) ||
+          Number(m.value) < 0,
+      )
+    )
+      missing.metrics =
+        "กรุณาระบุชื่อผลและจำนวนที่ถูกต้อง หรือเอารายการที่ยังไม่ทราบออก";
+    setFieldErrors(missing);
+    if (Object.keys(missing).length) {
+      setError("");
+      const key = Object.keys(missing)[0];
+      edit(key);
+      requestAnimationFrame(() =>
+        document
+          .getElementById("review-" + key)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      );
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const body = {
-        ...form,
-        intake: Boolean(form.intake),
-        intake_key: form.intake_key || undefined,
-        unit_id: Number(form.unit_id),
-        category_id: form.category_id ? Number(form.category_id) : null,
-        work_id: form.work_id ? Number(form.work_id) : null,
-        date: form.date || null,
-        metrics: form.metrics.map((m) => ({ ...m, value: Number(m.value) })),
-      };
-      await api("/activities" + (fresh ? "" : "/" + id), {
+      const out = await api("/activities" + (fresh ? "" : "/" + id), {
         method: fresh ? "POST" : "PUT",
-        body,
+        body: {
+          ...form,
+          status,
+          intake: Boolean(form.intake),
+          intake_key: form.intake_key || undefined,
+          unit_id: Number(form.unit_id),
+          category_id: form.category_id ? Number(form.category_id) : null,
+          work_id: form.work_id ? Number(form.work_id) : null,
+          date: form.date || null,
+          metrics: form.metrics.map((m) => ({ ...m, value: Number(m.value) })),
+        },
       });
       sessionStorage.removeItem("rm-new-evidence");
-      notify("บันทึกรายการงานเรียบร้อยแล้ว");
-      navigate("dashboard/mine");
+      notify(
+        status === "ready"
+          ? "เสร็จแล้ว — ยืนยันข้อมูลพร้อมสรุป"
+          : "บันทึกแล้ว — รอยืนยันข้อมูล",
+      );
+      if (fresh) navigate("activity/" + out.id);
+      else {
+        const updated = await api("/activities/" + id);
+        setRecord(updated);
+        setForm({ ...updated, file_ids: [], inbox_ids: [] });
+        setEvidence(updated.files);
+        setEditing({});
+        setFieldErrors({});
+      }
     } catch (e) {
       setError(e.message + (e.details ? " · " + e.details.join(" / ") : ""));
     } finally {
@@ -1691,11 +1751,45 @@ function ActivityEditor({ id }) {
     }
   }
   if (!form) return error ? <Notice error>{error}</Notice> : <Loading />;
+  const row = (key, label, value, controls, allowed = editable) => (
+    <ReviewItem
+      key={key}
+      field={key}
+      label={label}
+      value={value}
+      editing={Boolean(editing[key])}
+      editable={allowed && !needsAssignment}
+      busy={busy}
+      error={fieldErrors[key]}
+      onEdit={() => edit(key)}
+      onDone={() => setEditing((e) => ({ ...e, [key]: false }))}
+    >
+      {controls}
+    </ReviewItem>
+  );
+  const textInput = (key, label, multiline = false) => (
+    <Field label={label}>
+      {multiline ? (
+        <textarea
+          rows={3}
+          maxLength={key === "result" ? 10000 : 2000}
+          value={form[key]}
+          onChange={(e) => change(key, e.target.value)}
+        />
+      ) : (
+        <input
+          maxLength={300}
+          value={form[key]}
+          onChange={(e) => change(key, e.target.value)}
+        />
+      )}
+    </Field>
+  );
   return (
     <>
       <Header
         title="ตรวจข้อมูลรายงาน"
-        description="ตรวจข้อมูลร่วมกับหลักฐานต้นทาง แยกผู้รายงานออกจากผู้ปฏิบัติงาน"
+        description="อ่านสรุปและแก้ไขเฉพาะข้อมูลที่ต้องการ"
         action={
           <Button icon={ArrowLeft} onClick={() => navigate("library")}>
             กลับคลังข้อมูล
@@ -1703,204 +1797,96 @@ function ActivityEditor({ id }) {
         }
       />
       <div className="detail-status">
-        <Badge status={form.status} />
-        <Badge>{editable ? "คุณมีสิทธิ์แก้ไข" : "อ่านอย่างเดียว"}</Badge>
-        {record && (
-          <span>
-            ผู้นำเข้า: {record.owner_name} ·{" "}
-            {record.source === "line" ? "LINE" : "เว็บไซต์"}
-          </span>
-        )}
+        <Badge status={record?.status || form.status}>
+          {(record?.status || form.status) === "ready"
+            ? "เสร็จแล้ว · พร้อมสรุป"
+            : "รอยืนยันข้อมูล"}
+        </Badge>
+        <span>
+          {editable ? "แก้ไขได้ตามสิทธิ์" : "อ่านอย่างเดียว"} · ผู้ส่ง:{" "}
+          {record?.owner_name || user.name}
+        </span>
       </div>
-      <div className="detail-grid">
-        <section className="panel evidence-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>หลักฐานต้นทาง</h2>
+      <div className="review-layout">
+        <section className="panel review-main">
+          <h2>สรุปข้อมูล</h2>
+          {record?.intake && (
+            <details className="review-note">
+              <summary>
+                ยังไม่เชื่อม AI/OCR — ข้อมูลที่ยังไม่ระบุต้องเติมจากต้นฉบับ
+              </summary>
               <p>
-                {(record?.messages?.length || form.inbox_ids.length) +
-                  (record?.source_text ? 1 : 0)}{" "}
-                ข้อความ · {evidence.length} ไฟล์
+                ชื่อเริ่มต้นใช้บรรทัดแรกหรือชื่อไฟล์ ไม่ใช่ผลสกัดอัตโนมัติ
+                ต้องตรวจฝ่ายเจ้าของงานแยกจากฝ่ายผู้ส่ง
+                และไม่คาดเดาจำนวนคนจากภาพถ่าย
               </p>
-            </div>
-            {editable && (
-              <Button icon={Plus} onClick={() => setAttach(true)}>
-                เชื่อมไฟล์
-              </Button>
-            )}
-          </div>
-          {record?.intake && (
-            <div className="source-message">
-              <h3>ต้นฉบับที่ผู้ส่งส่งมา</h3>
-              <p style={{ whiteSpace: "pre-wrap" }}>
-                {record.source_text ||
-                  "ส่งไฟล์อย่างเดียว — เปิดหลักฐานเพื่อตรวจรายละเอียด"}
-              </p>
-              <small>
-                รับข้อมูลเมื่อ {fmt(record.created_at, true)} ·{" "}
-                {record.owner_name}
-              </small>
-            </div>
+            </details>
           )}
-          {record?.messages?.map((m) => (
-            <div className="source-message" key={m.id}>
-              <Badge status="line">LINE</Badge>
-              <p>{m.text || "รูปภาพ / ไฟล์แนบ"}</p>
-              <small>{fmt(m.received_at, true)}</small>
-            </div>
-          ))}
-          {evidence.length ? (
-            <div className="evidence-list">
-              {evidence.map((f) => (
-                <button key={f.id} onClick={() => setPreview(f)}>
-                  {f.mime.startsWith("image/") ? (
-                    <img src={fileUrl(f.id)} alt={f.title} />
-                  ) : (
-                    <FileText size={40} />
-                  )}
-                  <span>{f.title || f.original_name}</span>
-                  <small>{bytes(f.size)}</small>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Empty
-              title="ยังไม่มีไฟล์หลักฐาน"
-              children="เชื่อมไฟล์ที่นำเข้า หรืออ้างอิงข้อความ LINE ของกิจกรรมนี้"
-            />
+          {needsAssignment && (
+            <Notice error>กรุณาให้แอดมินกำหนดฝ่ายและงานก่อนสร้างรายงาน</Notice>
           )}
-          <Notice>
-            ข้อความและไฟล์หลายรายการเชื่อมกับงานเดียวกันได้
-            เมื่อพร้อมสรุปจะนับเป็น 1 กิจกรรม
-          </Notice>
-          {record?.history?.length > 0 && (
-            <div className="history-list">
-              <h3>ประวัติรายการ</h3>
-              {record.history.map((h, i) => (
-                <p key={i}>
-                  {h.action} · {h.actor_name}
-                  <small>{fmt(h.created_at, true)}</small>
-                </p>
-              ))}
-            </div>
+          {row(
+            "title",
+            "ชื่อกิจกรรม",
+            form.title,
+            textInput("title", "ชื่อเรื่อง *"),
           )}
-        </section>
-        <section className="panel form-panel">
-          <h2>สรุปข้อมูลเพื่อตรวจสอบ</h2>
-          {record?.intake && (
+          {row(
+            "date",
+            "วันที่",
+            form.date ? fmt(form.date) : "",
+            <Field label="วันที่ปฏิบัติงาน">
+              <input
+                type="date"
+                value={form.date || ""}
+                onChange={(e) => change("date", e.target.value)}
+              />
+            </Field>,
+          )}
+          {row(
+            "assignment",
+            "ฝ่าย/งาน",
+            [
+              meta.units.find((u) => u.id === Number(form.unit_id))?.name,
+              meta.works.find((w) => w.id === Number(form.work_id))?.name,
+            ]
+              .filter(Boolean)
+              .join(" / "),
             <>
-              <Notice>
-                ยังไม่ได้แยกข้อมูลด้วย AI/OCR
-                ชื่อรายการใช้ข้อความบรรทัดแรกหรือชื่อไฟล์เพื่อค้นหาเท่านั้น
-                โปรดตรวจต้นฉบับก่อนยืนยัน ไม่อนุมานจำนวนผู้รับบริการจากรูปถ่าย
-              </Notice>
-              <dl className="review-summary">
-                <dt>ชื่อรายการ</dt>
-                <dd>{form.title}</dd>
-                <dt>วันที่ปฏิบัติงาน</dt>
-                <dd>{form.date ? fmt(form.date) : "ยังไม่ระบุ"}</dd>
-                <dt>
-                  {form.status === "pending"
-                    ? "ฝ่ายรับเรื่อง (รอยืนยันเจ้าของงาน)"
-                    : "ฝ่ายเจ้าของงาน"}
-                </dt>
-                <dd>{meta.units.find((u) => u.id === form.unit_id)?.name}</dd>
-                <dt>ผลการดำเนินงาน</dt>
-                <dd>{form.result || "รอตรวจจากต้นฉบับ"}</dd>
-                <dt>
-                  {form.status === "ready"
-                    ? "จำนวนที่ยืนยัน"
-                    : "ตัวเลขรอยืนยัน"}
-                </dt>
-                <dd>
-                  {form.metrics.length
-                    ? form.metrics
-                        .map((m) => `${m.label} ${m.value} ${m.unit}`)
-                        .join(" · ")
-                    : "ยังไม่มี — ไม่นับยอด"}
-                </dd>
-              </dl>
-              {form.status === "pending" && (
-                <p className="muted">
-                  ต้องตรวจวันที่ ประเภทงาน พื้นที่ ผู้ปฏิบัติงาน ผลการดำเนินงาน
-                  และฝ่ายเจ้าของรายงาน หากฝ่ายไม่ตรง
-                  ให้หัวหน้าที่มีสิทธิ์ตรวจแก้ก่อนยืนยัน
-                </p>
-              )}
-              <Button
-                type="button"
-                onClick={() => setDetailsOpen(!detailsOpen)}
-              >
-                {detailsOpen
-                  ? "ปิดรายละเอียด"
-                  : editable
-                    ? "ตรวจและแก้ไขรายละเอียด"
-                    : "ดูรายละเอียด"}
-              </Button>
-            </>
-          )}
-          <form
-            className="form"
-            onSubmit={save}
-            hidden={record?.intake && !detailsOpen}
-          >
-            {needsAssignment && (
-              <Notice error>
-                กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดฝ่ายและงานก่อนสร้างรายการ
-              </Notice>
-            )}
-            <fieldset disabled={!editable || busy || needsAssignment}>
-              <Field label="ชื่อเรื่อง *">
-                <input
-                  required
-                  maxLength={300}
-                  value={form.title}
-                  onChange={(e) => change("title", e.target.value)}
-                />
-              </Field>
-              <div className="form-row">
-                <Field label="วันที่ปฏิบัติงาน">
-                  <input
-                    type="date"
-                    value={form.date || ""}
-                    onChange={(e) => change("date", e.target.value)}
-                    required={form.status === "ready"}
-                  />
+              {canChangeAssignment && (
+                <Field label="ฝ่าย/กลุ่มงาน *">
+                  <select
+                    value={form.unit_id}
+                    required
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        unit_id: Number(e.target.value),
+                        work_id:
+                          Number(e.target.value) === user.unit_id
+                            ? user.work_id || ""
+                            : "",
+                      }))
+                    }
+                  >
+                    <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+                    <UnitOptions
+                      units={meta.units}
+                      allowed={meta.units.filter(
+                        (u) =>
+                          u.id === form.unit_id ||
+                          (u.active &&
+                            (!editable ||
+                              (user.roles.includes("staff") &&
+                                u.id === user.unit_id) ||
+                              (user.roles.includes("head") &&
+                                user.scopes.includes(u.id)))),
+                      )}
+                    />
+                  </select>
                 </Field>
-                {canChangeAssignment && (
-                  <Field label="ฝ่าย/กลุ่มงาน *">
-                    <select
-                      value={form.unit_id}
-                      required
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          unit_id: Number(e.target.value),
-                          work_id:
-                            Number(e.target.value) === user.unit_id
-                              ? user.work_id || ""
-                              : "",
-                        }))
-                      }
-                    >
-                      <option value="">เลือกฝ่าย/กลุ่มงาน</option>
-                      <UnitOptions
-                        units={meta.units}
-                        allowed={meta.units.filter(
-                          (u) =>
-                            u.id === form.unit_id ||
-                            (u.active &&
-                              (!editable ||
-                                (user.roles.includes("staff") &&
-                                  u.id === user.unit_id) ||
-                                (user.roles.includes("head") &&
-                                  user.scopes.includes(u.id)))),
-                        )}
-                      />
-                    </select>
-                  </Field>
-                )}
-              </div>
+              )}
+
               {!canChangeAssignment ? (
                 <AssignmentFields
                   unitId={form.unit_id}
@@ -1933,62 +1919,24 @@ function ActivityEditor({ id }) {
                   )}
                 </Field>
               )}
-              <div className="form-row">
-                <div className="category-control">
-                  <Field label="ประเภทงาน">
-                    <select
-                      value={form.category_id || ""}
-                      onChange={(e) => change("category_id", e.target.value)}
-                      required={form.status === "ready"}
-                    >
-                      <option value="">ไม่พบข้อมูล / ยังไม่ระบุ</option>
-                      {meta.categories
-                        .filter((c) => c.active || c.id === form.category_id)
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                    </select>
-                  </Field>
-                  {editable && (
-                    <Button
-                      type="button"
-                      className="add-category"
-                      icon={Plus}
-                      onClick={() => setAddCategory(true)}
-                    >
-                      เพิ่มประเภทงาน
-                    </Button>
-                  )}
-                </div>
-                <Field label="พื้นที่">
-                  <input
-                    value={form.area}
-                    placeholder="ไม่พบข้อมูล"
-                    onChange={(e) => change("area", e.target.value)}
-                    required={form.status === "ready"}
-                  />
-                </Field>
-              </div>
-              <Field label="ผู้ปฏิบัติงานตามข้อมูลต้นทาง">
-                <textarea
-                  rows={2}
-                  value={form.workers}
-                  placeholder="ไม่พบข้อมูล"
-                  onChange={(e) => change("workers", e.target.value)}
-                  required={form.status === "ready"}
-                />
-              </Field>
-              <Field label="ผลการดำเนินงาน">
-                <textarea
-                  rows={4}
-                  value={form.result}
-                  placeholder="กรอกผลตามหลักฐานต้นทาง"
-                  onChange={(e) => change("result", e.target.value)}
-                  required={form.status === "ready"}
-                />
-              </Field>
+            </>,
+            editable && canChangeAssignment,
+          )}
+          {row(
+            "result",
+            "ผลการดำเนินงาน",
+            form.result,
+            textInput("result", "ผลการดำเนินงาน", true),
+          )}
+          {row(
+            "metrics",
+            "ตัวเลขและหน่วยนับ",
+            form.metrics.length
+              ? form.metrics
+                  .map((m) => `${m.label} ${m.value} ${m.unit}`)
+                  .join(" · ")
+              : "ยังไม่มีตัวเลขที่ยืนยัน",
+            <>
               <div className="form-section-title">
                 <h3>ตัวเลขและหน่วยนับ</h3>
                 <Button
@@ -2053,6 +2001,7 @@ function ActivityEditor({ id }) {
                       "ครั้ง",
                       "ครั้งบริการ",
                       "คน",
+                      "ราย",
                       "ตัน",
                       "หลังคาเรือน",
                       "แห่ง",
@@ -2076,29 +2025,159 @@ function ActivityEditor({ id }) {
                   </button>
                 </div>
               ))}
-              <Field label="สถานะข้อมูล">
-                <select
-                  value={form.status}
-                  onChange={(e) => change("status", e.target.value)}
+            </>,
+          )}
+          <details
+            className="review-extra"
+            open={extraOpen}
+            onToggle={(e) => setExtraOpen(e.currentTarget.open)}
+          >
+            <summary>
+              ข้อมูลเพิ่มเติม
+              {["category_id", "area", "workers"].some((k) => fieldErrors[k])
+                ? " · มีข้อมูลที่ต้องยืนยัน"
+                : ""}
+            </summary>
+            {row(
+              "category_id",
+              "ประเภทงาน",
+              meta.categories.find((c) => c.id === Number(form.category_id))
+                ?.name,
+              <div className="category-control">
+                <Field label="ประเภทงาน">
+                  <select
+                    value={form.category_id || ""}
+                    onChange={(e) => change("category_id", e.target.value)}
+                  >
+                    <option value="">ยังไม่ระบุ</option>
+                    {meta.categories
+                      .filter(
+                        (c) => c.active || c.id === Number(form.category_id),
+                      )
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <Button
+                  type="button"
+                  icon={Plus}
+                  onClick={() => setAddCategory(true)}
                 >
-                  <option value="pending">รอตรวจข้อมูล — ยังไม่รวมยอด</option>
-                  <option value="ready">พร้อมสรุป — ข้อมูลครบตามต้นทาง</option>
-                </select>
-              </Field>
-              {error && <Notice error>{error}</Notice>}
-              {editable && (
-                <Button primary disabled={busy} icon={Save}>
-                  {busy
-                    ? "กำลังบันทึก…"
-                    : form.status === "ready"
-                      ? "ยืนยันข้อมูล"
-                      : "บันทึกไว้รอตรวจ"}
+                  เพิ่มประเภทงาน
                 </Button>
-              )}
-            </fieldset>
-          </form>
+              </div>,
+            )}
+            {row("area", "พื้นที่", form.area, textInput("area", "พื้นที่"))}
+            {row(
+              "workers",
+              "ผู้ปฏิบัติงาน",
+              form.workers,
+              textInput("workers", "ผู้ปฏิบัติงานตามข้อมูลต้นทาง", true),
+            )}
+          </details>
         </section>
+        <aside className="panel review-evidence">
+          <div className="panel-heading">
+            <h2>ต้นฉบับและไฟล์แนบ</h2>
+            {editable && (
+              <Button
+                type="button"
+                disabled={busy}
+                icon={Plus}
+                onClick={() => setAttach(true)}
+              >
+                เชื่อมไฟล์
+              </Button>
+            )}
+          </div>
+          {record?.source_text && <SourceExcerpt text={record.source_text} />}
+          {record?.messages?.map((m) => (
+            <SourceExcerpt key={m.id} text={m.text || "ไฟล์จาก LINE"} />
+          ))}
+          <small className="muted">
+            {record
+              ? `รับข้อมูล ${fmt(record.created_at, true)} · ${record.owner_name}`
+              : "รายงานใหม่"}
+          </small>
+          <div className="review-files">
+            {evidence.map((f) => (
+              <button type="button" key={f.id} onClick={() => setPreview(f)}>
+                {f.mime.startsWith("image/") ? (
+                  <img src={fileUrl(f.id)} alt={f.original_name} />
+                ) : (
+                  <FileText size={24} />
+                )}
+                <span>{f.original_name || f.title}</span>
+                <small>{bytes(f.size)}</small>
+              </button>
+            ))}
+          </div>
+          {!evidence.length && <p className="muted">ยังไม่มีไฟล์แนบ</p>}
+          {!!record?.history?.length && (
+            <details className="review-history">
+              <summary>ประวัติการแก้ไข</summary>
+              {record.history.map((h, i) => (
+                <p key={i}>
+                  {h.action} · {h.actor_name}
+                  <br />
+                  <small>{fmt(h.created_at, true)}</small>
+                </p>
+              ))}
+            </details>
+          )}
+        </aside>
       </div>
+      {editable && (
+        <div className="review-savebar">
+          {error && <Notice error>{error}</Notice>}
+          {Object.values(fieldErrors).filter(Boolean).length > 0 && (
+            <div className="review-errors" role="alert">
+              {Object.entries(fieldErrors)
+                .filter(([, v]) => v)
+                .map(([k, v]) => (
+                  <button
+                    type="button"
+                    key={k}
+                    onClick={() => {
+                      edit(k);
+                      requestAnimationFrame(() =>
+                        document
+                          .getElementById("review-" + k)
+                          ?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          }),
+                      );
+                    }}
+                  >
+                    {v} — แก้ไข
+                  </button>
+                ))}
+            </div>
+          )}
+          <div className="actions">
+            <Button
+              type="button"
+              disabled={busy || needsAssignment}
+              onClick={() => save("pending")}
+            >
+              บันทึกไว้ก่อน
+            </Button>
+            <Button
+              primary
+              type="button"
+              icon={Check}
+              disabled={busy || needsAssignment}
+              onClick={() => save("ready")}
+            >
+              {busy ? "กำลังบันทึก…" : "ยืนยันข้อมูลเพื่อสรุป"}
+            </Button>
+          </div>
+        </div>
+      )}
       {preview && (
         <FilePreview file={preview} onClose={() => setPreview(null)} />
       )}{" "}
@@ -2124,6 +2203,64 @@ function ActivityEditor({ id }) {
         />
       )}
     </>
+  );
+}
+function ReviewItem({
+  field,
+  label,
+  value,
+  editing,
+  editable,
+  busy,
+  error,
+  onEdit,
+  onDone,
+  children,
+}) {
+  return (
+    <div
+      id={"review-" + field}
+      className={`review-item ${error ? "has-error" : ""}`}
+    >
+      <div className="review-item-heading">
+        <h3>{label}</h3>
+        {editable && (
+          <Button
+            type="button"
+            disabled={busy}
+            aria-label={(editing ? "ปิดการแก้ไข " : "แก้ไข ") + label}
+            onClick={editing ? onDone : onEdit}
+          >
+            {editing ? "เสร็จ" : "แก้ไข"}
+          </Button>
+        )}
+      </div>
+      {editing && editable ? (
+        <fieldset disabled={busy}>{children}</fieldset>
+      ) : (
+        <p className={!value ? "muted" : ""}>{value || "ยังไม่ระบุ"}</p>
+      )}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+function SourceExcerpt({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="source-excerpt">
+      <p className={expanded ? "" : "clamped"}>{text}</p>
+      <button
+        type="button"
+        className="text-link"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? "ย่อข้อความ" : "อ่านทั้งหมด"}
+      </button>
+    </div>
   );
 }
 function CategoryCreator({ onClose, onCreated }) {
@@ -3556,7 +3693,7 @@ function AuditChanges({ entry }) {
     if (key === "status")
       return (
         {
-          pending: "รอตรวจข้อมูล",
+          pending: "รอยืนยันข้อมูล",
           ready: "พร้อมสรุป",
           draft: "ฉบับร่าง",
           published: "เผยแพร่แล้ว",

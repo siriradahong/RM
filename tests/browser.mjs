@@ -6,6 +6,33 @@ import { join } from "node:path";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/security.js";
 
+async function openReviewFields(p) {
+  for (const label of [
+    "ชื่อกิจกรรม",
+    "วันที่",
+    "ฝ่าย/งาน",
+    "ผลการดำเนินงาน",
+    "ตัวเลขและหน่วยนับ",
+  ]) {
+    const button = p.getByRole("button", {
+      name: "แก้ไข " + label,
+      exact: true,
+    });
+    if (await button.count()) await button.click();
+  }
+  const extra = p.locator("details.review-extra");
+  if (!(await extra.getAttribute("open"))) {
+    if (!(await extra.evaluate((el) => el.open)))
+      await extra.locator("summary").click();
+  }
+  for (const label of ["ประเภทงาน", "พื้นที่", "ผู้ปฏิบัติงาน"]) {
+    const button = p.getByRole("button", {
+      name: "แก้ไข " + label,
+      exact: true,
+    });
+    if (await button.count()) await button.click();
+  }
+}
 const dir = await mkdtemp(join(tmpdir(), "rm-browser-"));
 const origin = "http://127.0.0.1:4175";
 const app = createApp({
@@ -205,9 +232,7 @@ try {
   await page
     .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
-  await page
-    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
-    .click();
+  await openReviewFields(page);
   assert.equal(
     await page.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     "ประชุมเครือข่าย อสม.",
@@ -278,10 +303,12 @@ try {
   await page.getByRole("button", { name: "เพิ่มผล", exact: true }).click();
   await page.getByLabel("ชื่อผล 1", { exact: true }).fill("ผู้เข้าร่วม");
   await page.getByLabel("จำนวน 1", { exact: true }).fill("32");
-  await page.getByLabel("สถานะข้อมูล", { exact: true }).selectOption("ready");
+
   await page
-    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
+    .getByRole("button", { name: "ยืนยันข้อมูลเพื่อสรุป", exact: true })
     .click();
+  await page.getByText("เสร็จแล้ว · พร้อมสรุป", { exact: true }).waitFor();
+  await page.goto(origin + "/#dashboard/mine");
   await page
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
@@ -340,6 +367,7 @@ try {
       false,
       "Detail page overflow at " + width,
     );
+    await openReviewFields(page);
     assert.equal(
       await page
         .getByLabel("งานตามฝ่าย/กลุ่มงาน", { exact: true })
@@ -354,9 +382,7 @@ try {
         .textContent(),
       "ลงพื้นที่ชุมชน",
     );
-    await page
-      .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
-      .click();
+    await openReviewFields(page);
     if (width === 390) {
       await page
         .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
@@ -479,7 +505,7 @@ try {
     .waitFor();
   await staff.reload();
   await staff
-    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .getByRole("button", { name: "ยืนยันข้อมูลเพื่อสรุป", exact: true })
     .waitFor();
   assert.equal(
     await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).isVisible(),
@@ -489,16 +515,44 @@ try {
     path: "test-results/intake-review-mobile.png",
     fullPage: true,
   });
+  const bar = await staff.locator(".review-savebar").boundingBox();
+  assert.ok(
+    bar.y + bar.height <= 844 + 1,
+    "save actions stay in mobile viewport",
+  );
+  assert.equal(
+    await staff.getByLabel("สถานะข้อมูล", { exact: true }).count(),
+    0,
+  );
   await staff
-    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .getByRole("button", { name: "ยืนยันข้อมูลเพื่อสรุป", exact: true })
     .click();
+  await staff
+    .locator("#review-date .field-error")
+    .getByText("กรุณายืนยันวันที่กิจกรรม", { exact: true })
+    .waitFor();
+  assert.equal(
+    app.locals.db
+      .prepare("SELECT status FROM activities WHERE title=?")
+      .get("เยี่ยมบ้านผู้สูงอายุประจำเดือน").status,
+    "pending",
+  );
+
+  await openReviewFields(staff);
   assert.equal(
     await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     "เยี่ยมบ้านผู้สูงอายุประจำเดือน",
   );
+  assert.ok(
+    (await staff.locator("#review-assignment").textContent()).includes(
+      "งานสาธารณสุขชุมชน",
+    ),
+  );
   assert.equal(
-    await staff.getByLabel("งานที่รับผิดชอบ", { exact: true }).inputValue(),
-    "งานสาธารณสุขชุมชน",
+    await staff
+      .getByRole("button", { name: "แก้ไข ฝ่าย/งาน", exact: true })
+      .count(),
+    0,
   );
   await staff.setViewportSize({ width: 1440, height: 1000 });
   await staff.screenshot({
@@ -506,8 +560,12 @@ try {
     fullPage: true,
   });
   await staff
-    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
+    .getByRole("button", { name: "บันทึกไว้ก่อน", exact: true })
     .click();
+  await staff
+    .getByText("บันทึกแล้ว — รอยืนยันข้อมูล", { exact: true })
+    .waitFor();
+  await staff.goto(origin + "/#dashboard/mine");
   await staff
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
@@ -537,7 +595,7 @@ try {
   });
   await staff.getByRole("button", { name: "ส่งรายงาน", exact: true }).click();
   await staff
-    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .getByRole("button", { name: "ยืนยันข้อมูลเพื่อสรุป", exact: true })
     .waitFor();
   const fileOnly = app.locals.db
     .prepare("SELECT * FROM activities WHERE title='file-only.pdf'")

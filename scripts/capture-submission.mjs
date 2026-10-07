@@ -7,6 +7,33 @@ import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { seedDemo } from "./seed-demo.mjs";
 import { createApp } from "../server/app.js";
+async function openReviewFields(p) {
+  for (const label of [
+    "ชื่อกิจกรรม",
+    "วันที่",
+    "ฝ่าย/งาน",
+    "ผลการดำเนินงาน",
+    "ตัวเลขและหน่วยนับ",
+  ]) {
+    const button = p.getByRole("button", {
+      name: "แก้ไข " + label,
+      exact: true,
+    });
+    if (await button.count()) await button.click();
+  }
+  const extra = p.locator("details.review-extra");
+  if (!(await extra.getAttribute("open"))) {
+    if (!(await extra.evaluate((el) => el.open)))
+      await extra.locator("summary").click();
+  }
+  for (const label of ["ประเภทงาน", "พื้นที่", "ผู้ปฏิบัติงาน"]) {
+    const button = p.getByRole("button", {
+      name: "แก้ไข " + label,
+      exact: true,
+    });
+    if (await button.count()) await button.click();
+  }
+}
 const output = resolve("docs/submission/screenshots");
 await mkdir(output, { recursive: true });
 const dataDir = await mkdtemp(join(tmpdir(), "rm-submission-"));
@@ -124,9 +151,7 @@ try {
   await staff
     .getByRole("heading", { name: "ตรวจข้อมูลรายงาน", exact: true })
     .waitFor();
-  await staff
-    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
-    .click();
+  await openReviewFields(staff);
   assert.equal(
     await staff.getByLabel("ชื่อเรื่อง *", { exact: true }).inputValue(),
     title,
@@ -158,13 +183,15 @@ try {
     await staff.getByLabel("จำนวน " + i, { exact: true }).fill(String(value));
     await staff.getByLabel("หน่วยนับ " + i, { exact: true }).selectOption(unit);
   }
-  await staff
-    .getByLabel("สถานะข้อมูล", { exact: true })
-    .selectOption("pending");
+
   await capture(staff, "07a-report-edit", "ตรวจข้อมูลและหลักฐาน", "S07", "A");
   await staff
-    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
+    .getByRole("button", { name: "บันทึกไว้ก่อน", exact: true })
     .click();
+  await staff
+    .getByText("บันทึกแล้ว — รอยืนยันข้อมูล", { exact: true })
+    .waitFor();
+  await route(staff, "dashboard/mine");
   await staff
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
@@ -174,13 +201,13 @@ try {
   assert.ok(report);
   const head = await login("demo.head");
   await route(head, "activity/" + report.id);
+  await openReviewFields(head);
+
   await head
-    .getByRole("button", { name: "ตรวจและแก้ไขรายละเอียด", exact: true })
+    .getByRole("button", { name: "ยืนยันข้อมูลเพื่อสรุป", exact: true })
     .click();
-  await head.getByLabel("สถานะข้อมูล", { exact: true }).selectOption("ready");
-  await head
-    .getByRole("button", { name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/, exact: false })
-    .click();
+  await head.getByText("เสร็จแล้ว · พร้อมสรุป", { exact: true }).waitFor();
+  await route(head, "dashboard/mine");
   await head
     .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
     .waitFor();
@@ -231,7 +258,7 @@ try {
   assert.equal(
     await executive
       .getByRole("button", {
-        name: /ยืนยันข้อมูล|บันทึกไว้รอตรวจ/,
+        name: /ยืนยันข้อมูลเพื่อสรุป|บันทึกไว้ก่อน/,
         exact: false,
       })
       .count(),
