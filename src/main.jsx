@@ -49,6 +49,17 @@ import "@fontsource/noto-sans-thai/700.css";
 import "./styles.css";
 import { api, setCsrf, query, fileUrl } from "./api";
 import { UnitOptions, WorkOptions } from "./organization";
+import { ExpandedPage, ActivityAssist } from "./expanded";
+import {
+  UnitPicker,
+  Collaborators,
+  MetricSuggestions,
+  NewsDiscussion,
+  ActivityCalendar,
+  AmendmentRequest,
+  AmendmentQueue,
+  SystemStatus,
+} from "./community";
 
 const Context = createContext();
 const useApp = () => useContext(Context);
@@ -367,9 +378,9 @@ function App() {
   };
   const landing = (u) =>
     u.roles.includes("executive")
-      ? "dashboard/overview"
+      ? "insights"
       : u.roles.includes("head")
-        ? "dashboard/unit"
+        ? "insights"
         : u.roles.includes("staff")
           ? "dashboard/mine"
           : u.roles.includes("pr")
@@ -427,6 +438,14 @@ function App() {
   const menu = [
     ["dashboard", "แดชบอร์ด", LayoutDashboard],
     ["library", "คลังข้อมูล", FolderOpen],
+    ["insights", "วิเคราะห์ผลตามฝ่าย", Activity],
+    ["projects", "ผลรายโครงการ", CalendarDays],
+    ["calendar", "ปฏิทินผลงาน", CalendarDays],
+    ...(canWrite ? [["amendments", "คำขอแก้ไข", History]] : []),
+    ["reports", "รายงานย้อนหลัง", Download],
+    ["quality", "ตรวจข้อมูลและรอบรายงาน", ShieldCheck],
+    ...(canWrite ? [["line-link", "ผูกบัญชี LINE", Link]] : []),
+    ...(isAdmin ? [["report-settings", "แม่แบบและการสรุป", Settings]] : []),
     ...(canWrite
       ? [
           ["import", "เพิ่มข้อมูล", Plus],
@@ -434,10 +453,16 @@ function App() {
         ]
       : []),
     ["feed", "ฟีดข่าวภายใน", Newspaper],
-    ...(isPr ? [["news", "จัดการข่าว", FileText]] : []),
+    ...(isPr
+      ? [
+          ["news-candidates", "คิวเสนอข่าว", Newspaper],
+          ["news", "จัดการข่าว", FileText],
+        ]
+      : []),
     ...(isAdmin
       ? [
           ["admin", "ดูแลระบบ", Settings],
+          ["system-status", "สถานะระบบ", Activity],
           ["audit", "ประวัติการแก้ไขข้อมูล", History],
         ]
       : []),
@@ -457,6 +482,21 @@ function App() {
   let page;
   if (current === "dashboard" || !current)
     page = <Dashboard mode={view || "overview"} />;
+  else if (current === "calendar") page = <ActivityCalendar {...ctx} />;
+  else if (current === "amendments") page = <AmendmentQueue {...ctx} />;
+  else if (current === "system-status" && isAdmin) page = <SystemStatus />;
+  else if (
+    [
+      "insights",
+      "projects",
+      "reports",
+      "quality",
+      "line-link",
+      "report-settings",
+      "news-candidates",
+    ].includes(current)
+  )
+    page = <ExpandedPage section={current} {...ctx} />;
   else if (current === "library") page = <Library />;
   else if (current === "activity") page = <ActivityEditor id={view} />;
   else if (current === "import" && canWrite) page = <ImportPage />;
@@ -1381,6 +1421,7 @@ function ImportPage() {
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);
   const [archive, setArchive] = useState(false);
+  const [proposeNews, setProposeNews] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
@@ -1400,11 +1441,11 @@ function ImportPage() {
       next.some(
         (f) =>
           f.size > 20 * 1024 * 1024 ||
-          !/\.(pdf|xlsx?|png|jpe?g|webp)$/i.test(f.name),
+          !/\.(pdf|docx|txt|xlsx?|png|jpe?g|webp)$/i.test(f.name),
       )
     ) {
       setError(
-        "แนบได้สูงสุด 10 ไฟล์ รองรับ PDF, Excel และรูปภาพ ขนาดไม่เกิน 20 MB ต่อไฟล์",
+        "แนบได้สูงสุด 10 ไฟล์ รองรับ PDF, Word, Excel, TXT และรูปภาพ ขนาดไม่เกิน 20 MB ต่อไฟล์",
       );
       return;
     }
@@ -1471,7 +1512,22 @@ function ImportPage() {
             metrics: [],
           },
         });
+        if (proposeNews)
+          await api("/news-candidates", {
+            method: "POST",
+            body: { activity_id: out.id },
+          });
         notify("รับรายงานแล้ว เก็บต้นฉบับไว้รอยืนยันข้อมูล");
+        try {
+          await api("/activities/" + out.id + "/extract", {
+            method: "POST",
+            body: {},
+          });
+        } catch {
+          notify(
+            "เก็บต้นฉบับแล้ว เปิดตรวจข้อมูลหรือประมวลผลใหม่ได้ในหน้ารายงาน",
+          );
+        }
         navigate("activity/" + out.id);
       }
     } catch (e) {
@@ -1492,6 +1548,16 @@ function ImportPage() {
         description="ส่งรายงานเหมือนใน LINE พิมพ์ข้อความ แนบไฟล์ หรือส่งทั้งสองอย่างพร้อมกัน"
       />
       <section className="panel import-panel">
+        {!archive && (
+          <label className="rm-checkbox" style={{ marginBottom: 14 }}>
+            <input
+              type="checkbox"
+              checked={proposeNews}
+              onChange={(e) => setProposeNews(e.target.checked)}
+            />
+            เสนอรายงานนี้ให้ประชาสัมพันธ์พิจารณาทำข่าว
+          </label>
+        )}
         <form className="form" onSubmit={submit}>
           <fieldset disabled={busy || needsAssignment || !unit}>
             <Field label="ข้อความรายงาน">
@@ -1515,12 +1581,15 @@ function ImportPage() {
             >
               <FileUp size={32} />
               <h2>ลากไฟล์มาวาง หรือกดแนบไฟล์</h2>
-              <p>PDF, Excel หรือรูปภาพ · สูงสุด 10 ไฟล์ · 20 MB ต่อไฟล์</p>
+              <p>
+                PDF, Word, Excel, TXT หรือรูปภาพ · สูงสุด 10 ไฟล์ · 20 MB
+                ต่อไฟล์
+              </p>
               <input
                 type="file"
                 aria-label="แนบไฟล์"
                 multiple
-                accept=".pdf,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+                accept=".pdf,.docx,.txt,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
                 disabled={busy || uploaded.current.size > 0}
                 onChange={(e) => {
                   choose(e.target.files);
@@ -1557,7 +1626,7 @@ function ImportPage() {
             <Notice>
               {archive
                 ? "เก็บข้อความและไฟล์ไว้ค้นหา ส่งข้อความอย่างเดียวได้ ไม่สร้างรายงานและไม่รวมในสรุปผลงาน"
-                : "เก็บข้อความและไฟล์ต้นฉบับก่อน ขณะนี้ยังไม่เชื่อม AI/OCR จึงยังไม่แยกข้อมูลจากข้อความหรือเอกสารอัตโนมัติ รายงานจะรอตรวจและยังไม่รวมยอดบนแดชบอร์ด"}
+                : "เก็บข้อความและไฟล์ต้นฉบับ แล้วเสนอข้อมูลให้ตรวจตามตัวอ่านเอกสารและโมเดลที่ตั้งค่า รายงานจะยังไม่รวมยอดจนกว่าเจ้าของหรือหัวหน้าที่มีสิทธิ์ยืนยัน"}
             </Notice>
             <p className="muted">
               ผู้ส่ง: {user.name} · ฝ่ายรับเรื่อง:{" "}
@@ -1599,6 +1668,7 @@ const blankActivity = (user, extra = {}) => ({
   work_id: user.work_id || "",
   area: "",
   workers: "",
+  collaborators: [],
   result: "",
   metrics: [],
   status: "pending",
@@ -1667,7 +1737,9 @@ function ActivityEditor({ id }) {
       alive = false;
     };
   }, [id]);
-  const editable = fresh ? canWrite : record?.can_edit;
+  const editable = fresh
+    ? canWrite
+    : record?.can_edit && !record?.locked && !record?.duplicate_of;
   const canChangeAssignment =
     user.roles.includes("head") &&
     (fresh || hasHeadScope(user, record?.unit_id));
@@ -1701,6 +1773,7 @@ function ActivityEditor({ id }) {
       form.metrics.some(
         (m) =>
           !m.label.trim() ||
+          !m.unit.trim() ||
           m.value === "" ||
           !Number.isFinite(Number(m.value)) ||
           Number(m.value) < 0,
@@ -1815,13 +1888,56 @@ function ActivityEditor({ id }) {
           {record?.owner_name || user.name}
         </span>
       </div>
+      {!fresh && <AmendmentRequest record={record} notify={notify} />}
+      {!fresh && record?.can_edit && (
+        <ActivityAssist
+          record={record}
+          meta={meta}
+          navigate={navigate}
+          notify={notify}
+          onApplied={async () => {
+            const r = await api("/activities/" + id);
+            setRecord(r);
+            setForm({ ...r, file_ids: [], inbox_ids: [] });
+            setEvidence(r.files);
+          }}
+        />
+      )}
+      {!!record?.duplicate_of && (
+        <Notice>
+          รายการนี้ยืนยันว่าซ้ำกับ #{record.duplicate_of} จึงไม่รวมยอดซ้ำ{" "}
+          <Button onClick={() => navigate("activity/" + record.duplicate_of)}>
+            ดูรายการหลัก
+          </Button>
+        </Notice>
+      )}
+      {!!record?.source_reports?.length && (
+        <Notice>
+          ต้นฉบับและไฟล์ประกอบอยู่ในรายงาน{" "}
+          {record.source_reports.map((s) => (
+            <Button key={s.id} onClick={() => navigate("activity/" + s.id)}>
+              #{s.id} {s.title}
+            </Button>
+          ))}
+        </Notice>
+      )}
+      {!!record?.duplicate_reports?.length && (
+        <Notice>
+          หลักฐานเพิ่มเติมจากรายงานที่รวมไว้{" "}
+          {record.duplicate_reports.map((s) => (
+            <Button key={s.id} onClick={() => navigate("activity/" + s.id)}>
+              #{s.id} {s.title}
+            </Button>
+          ))}
+        </Notice>
+      )}
       <div className="review-layout">
         <section className="panel review-main">
           <h2>สรุปข้อมูล</h2>
           {record?.intake && (
             <details className="review-note">
               <summary>
-                ยังไม่เชื่อม AI/OCR — ข้อมูลที่ยังไม่ระบุต้องเติมจากต้นฉบับ
+                ตรวจข้อมูลที่เสนอจากต้นฉบับก่อนยืนยัน ข้อมูลที่ไม่พบต้องเติมเอง
               </summary>
               <p>
                 ชื่อเริ่มต้นใช้บรรทัดแรกหรือชื่อไฟล์ ไม่ใช่ผลสกัดอัตโนมัติ
@@ -1960,6 +2076,15 @@ function ActivityEditor({ id }) {
                   เพิ่มผล
                 </Button>
               </div>
+              <MetricSuggestions
+                category={
+                  meta.categories.find((c) => c.id === Number(form.category_id))
+                    ?.name
+                }
+                unitId={form.unit_id}
+                value={form.metrics}
+                onChange={(v) => change("metrics", v)}
+              />
               {form.metrics.map((m, i) => (
                 <div className="metric-row" key={i}>
                   <input
@@ -1992,32 +2117,18 @@ function ActivityEditor({ id }) {
                       )
                     }
                   />
-                  <select
-                    aria-label={"หน่วยนับ " + (i + 1)}
+                  <UnitPicker
+                    label={"หน่วยนับ " + (i + 1)}
                     value={m.unit}
-                    onChange={(e) =>
+                    onChange={(unit) =>
                       change(
                         "metrics",
                         form.metrics.map((x, j) =>
-                          j === i ? { ...x, unit: e.target.value } : x,
+                          j === i ? { ...x, unit } : x,
                         ),
                       )
                     }
-                  >
-                    {[
-                      "กิจกรรม",
-                      "ครั้ง",
-                      "ครั้งบริการ",
-                      "คน",
-                      "ราย",
-                      "ตัน",
-                      "หลังคาเรือน",
-                      "แห่ง",
-                      "กิโลกรัม",
-                    ].map((u) => (
-                      <option key={u}>{u}</option>
-                    ))}
-                  </select>
+                  />
                   <button
                     type="button"
                     className="icon-button"
@@ -2077,6 +2188,16 @@ function ActivityEditor({ id }) {
                   เพิ่มประเภทงาน
                 </Button>
               </div>,
+            )}
+            {row(
+              "collaborators",
+              "หน่วยงานที่ร่วม",
+              (form.collaborators || []).join(" · "),
+              <Collaborators
+                value={form.collaborators || []}
+                units={meta.units}
+                onChange={(v) => change("collaborators", v)}
+              />,
             )}
             {row("area", "พื้นที่", form.area, textInput("area", "พื้นที่"))}
             {row(
@@ -2379,9 +2500,9 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
     if (!file || busy) return;
     if (
       file.size > 20 * 1024 * 1024 ||
-      !/\.(pdf|xlsx?|png|jpe?g|webp)$/i.test(file.name)
+      !/\.(pdf|docx|txt|xlsx?|png|jpe?g|webp)$/i.test(file.name)
     ) {
-      setError("รองรับ PDF, Excel และรูปภาพ สูงสุด 20 MB ต่อไฟล์");
+      setError("รองรับ PDF, Word, Excel, TXT และรูปภาพ สูงสุด 20 MB ต่อไฟล์");
       return;
     }
     setBusy(true);
@@ -2435,7 +2556,7 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
             <input
               type="file"
               disabled={busy}
-              accept=".pdf,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+              accept=".pdf,.docx,.txt,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
               onChange={(e) => {
                 setFile(e.target.files[0] || null);
                 uploaded.current = null;
@@ -2443,7 +2564,9 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
               }}
             />
           </Field>
-          <p className="muted">PDF, Excel หรือรูปภาพ · สูงสุด 20 MB ต่อไฟล์</p>
+          <p className="muted">
+            PDF, Word, Excel, TXT หรือรูปภาพ · สูงสุด 20 MB ต่อไฟล์
+          </p>
           <Button primary type="submit" disabled={busy || !file || !unit}>
             {busy ? "กำลังเพิ่มไฟล์…" : "อัปโหลดและแนบไฟล์"}
           </Button>
@@ -2576,6 +2699,51 @@ function LineInbox() {
                           {fmt(m.received_at, true)}
                         </small>
                         {m.error && <Notice error>{m.error}</Notice>}
+                        {m.processing?.error && (
+                          <Notice error>{m.processing.error}</Notice>
+                        )}
+                        {m.analysis && (
+                          <details>
+                            <summary>
+                              ข้อมูลที่ระบบเสนอ ({m.analysis.engine})
+                            </summary>
+                            <p>
+                              {m.analysis.is_report
+                                ? "พบข้อมูลที่อาจเป็นรายงาน ต้องตรวจและจัดชุดก่อนยืนยัน"
+                                : "ยังไม่ระบุว่าเป็นรายงาน"}
+                            </p>
+                            {m.analysis.activities.map((a, i) => (
+                              <p key={i}>
+                                {a.title} · {a.date || "ยังไม่พบวันที่"}
+                              </p>
+                            ))}
+                          </details>
+                        )}
+                        {m.can_edit && (
+                          <Button
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusy(true);
+                              try {
+                                await api("/inbox/" + m.id + "/analyze", {
+                                  method: "POST",
+                                  body: {},
+                                });
+                                r.reload();
+                                notify(
+                                  "ประมวลผลข้อความแล้ว กรุณาตรวจและเลือกชุดรายงาน",
+                                );
+                              } catch (e) {
+                                notify(e.message);
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            อ่านข้อความ / เสนอข้อมูล
+                          </Button>
+                        )}
+
                         {m.kind !== "text" && (
                           <Button
                             disabled={busy || !m.can_edit || !!m.file_id}
@@ -2618,6 +2786,19 @@ function LineInbox() {
 }
 
 function Feed() {
+  const [linkError, setLinkError] = useState("");
+  useEffect(() => {
+    const openLinked = () => {
+      const id = location.hash.match(/^#feed\/(\d+)$/)?.[1];
+      if (id)
+        api("/news/" + id)
+          .then(setSelected)
+          .catch((e) => setLinkError(e.message));
+    };
+    openLinked();
+    window.addEventListener("hashchange", openLinked);
+    return () => window.removeEventListener("hashchange", openLinked);
+  }, []);
   const [filters, setFilters] = useState({ page: 1 }),
     [selected, setSelected] = useState(null);
   const r = useResource("/news?" + query({ ...filters, feed: "1" }));
@@ -2633,11 +2814,12 @@ function Feed() {
         search={false}
         scope={false}
       />
+      {linkError && <Notice error>{linkError}</Notice>}
       <Resource resource={r}>
         {(d) => (
           <>
             {d.items.length ? (
-              <div className="news-grid">
+              <div className="news-grid rm-feed-stream">
                 {d.items.map((n) => (
                   <article className="news-card panel" key={n.id}>
                     {n.cover_id ? (
@@ -2664,6 +2846,7 @@ function Feed() {
                       >
                         อ่านเพิ่มเติม <ArrowRight size={17} />
                       </button>
+                      <NewsDiscussion id={n.id} />
                     </div>
                   </article>
                 ))}
@@ -2715,6 +2898,9 @@ function NewsPreview({ news, onClose, action }) {
             <img key={id} src={fileUrl(id)} alt="ภาพกิจกรรม" />
           ))}
       </div>
+      {!action && news.status === "published" && (
+        <NewsDiscussion id={news.id} />
+      )}
       {action && <div className="modal-actions">{action}</div>}
     </Modal>
   );
@@ -2809,7 +2995,9 @@ function NewsManager() {
       </section>
       <Notice>
         ข่าวฉบับเผยแพร่เป็นข้อมูลแยกจากรายงานต้นทาง และไม่มีการเผยแพร่อัตโนมัติ
-        ขณะนี้เลือกต้นทางด้วยเจ้าหน้าที่ได้ โดยยังไม่ได้เชื่อมบริการ AI เสนอข่าว
+        เลือกรายงานต้นทางที่ยืนยันแล้ว
+        หรือเปิดเมนูคิวเสนอข่าวเพื่อดูรายการที่เจ้าหน้าที่และโมเดลเสนอ
+        ทุกข่าวต้องตรวจและยืนยันก่อนเผยแพร่
       </Notice>
     </>
   );

@@ -23,23 +23,17 @@ export const activitySchema = z
     category_id: id.nullable().default(null),
     area: optionalText(300),
     workers: optionalText(),
+    collaborators: z
+      .array(z.string().trim().min(1).max(200))
+      .max(30)
+      .optional(),
     result: optionalText(10000),
     metrics: z
       .array(
         z.object({
           label: z.string().trim().min(1).max(100),
           value: z.number().finite().min(0).max(1e12),
-          unit: z.enum([
-            "กิจกรรม",
-            "ครั้ง",
-            "ครั้งบริการ",
-            "คน",
-            "ราย",
-            "ตัน",
-            "หลังคาเรือน",
-            "แห่ง",
-            "กิโลกรัม",
-          ]),
+          unit: z.string().trim().min(1).max(40),
         }),
       )
       .max(20)

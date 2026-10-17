@@ -1,3 +1,5 @@
+import { queueLineAutomation } from "./line-automation.js";
+import { bindLineAccount } from "./extraction.js";
 import express from "express";
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
@@ -240,6 +242,7 @@ export function registerLineWebhook(app, db, dataDir) {
         if (!Array.isArray(payload.events))
           throw httpError(400, "Invalid webhook payload");
         for (const event of payload.events) {
+          if (bindLineAccount(db, event)) continue;
           if (
             event.type !== "message" ||
             event.source?.groupId !== process.env.LINE_REPORT_GROUP_ID ||
@@ -250,18 +253,26 @@ export function registerLineWebhook(app, db, dataDir) {
           const owner = db
             .prepare("SELECT id FROM users WHERE line_user_id=? AND active=1")
             .get(event.source.userId);
-          db.prepare(
-            "INSERT OR IGNORE INTO inbox(event_id,line_user_id,owner_id,group_id,kind,text,message_id,received_at) VALUES(?,?,?,?,?,?,?,?)",
-          ).run(
-            event.webhookEventId,
-            event.source.userId,
-            owner?.id || null,
-            event.source.groupId,
-            event.message.type,
-            event.message.text || event.message.fileName || "",
-            event.message.id || null,
-            new Date(event.timestamp).toISOString(),
-          );
+          const inserted = db
+            .prepare(
+              "INSERT OR IGNORE INTO inbox(event_id,line_user_id,owner_id,group_id,kind,text,message_id,received_at) VALUES(?,?,?,?,?,?,?,?)",
+            )
+            .run(
+              event.webhookEventId,
+              event.source.userId,
+              owner?.id || null,
+              event.source.groupId,
+              event.message.type,
+              event.message.text || event.message.fileName || "",
+              event.message.id || null,
+              new Date(event.timestamp).toISOString(),
+            );
+          if (inserted.changes && owner) {
+            const row = db
+              .prepare("SELECT * FROM inbox WHERE event_id=?")
+              .get(event.webhookEventId);
+            queueLineAutomation(db, dataDir, event, row, downloadLineMedia);
+          }
         }
         res.json({ ok: true });
       } catch (e) {

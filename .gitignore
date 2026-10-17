@@ -11,3 +11,8 @@ coverage/
 test-results/
 .first-admin.txt
 .playwright/
+
+node_modules
+tmp/
+.venv/
+__pycache__/

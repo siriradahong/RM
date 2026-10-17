@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
+import { migrateExpanded } from "./expanded-schema.js";
 import { migrateOrganization } from "./organization.js";
 
 export const ROLES = {
@@ -98,6 +99,7 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
       );
     });
   }
+  migrateExpanded(db);
   return { db, dataDir };
 }
 export function transaction(db, fn) {
