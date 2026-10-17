@@ -1,3 +1,4 @@
+import { assertUnlocked } from "./insights.js";
 import multer from "multer";
 import { randomUUID } from "node:crypto";
 import { writeFile, unlink, copyFile } from "node:fs/promises";
@@ -25,6 +26,8 @@ const upload = multer({
 });
 const allowed = new Set([
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
   "image/jpeg",
   "image/png",
   "image/webp",
@@ -40,13 +43,14 @@ export function activity(db, row, user) {
   return {
     ...row,
     metrics: JSON.parse(row.metrics),
+    collaborators: JSON.parse(row.collaborators || "[]"),
     intake: Boolean(row.intake),
     can_edit: canEdit(user, row),
   };
 }
 const selectActivity = `SELECT a.*,u.name AS unit_name,c.name AS category_name,o.name AS owner_name,w.name AS work_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id LEFT JOIN works w ON w.id=a.work_id`;
 function whereFor(req, alias = "a") {
-  const clauses = [],
+  const clauses = [`${alias}.duplicate_of IS NULL`],
     params = [];
   const add = (sql, v) => {
     clauses.push(sql);
@@ -71,9 +75,9 @@ function whereFor(req, alias = "a") {
   if (req.query.source) add(`${alias}.source=?`, req.query.source);
   if (req.query.q) {
     clauses.push(
-      `(${alias}.title LIKE ? OR ${alias}.area LIKE ? OR ${alias}.result LIKE ?)`,
+      `(${alias}.title LIKE ? OR ${alias}.area LIKE ? OR ${alias}.result LIKE ? OR ${alias}.collaborators LIKE ?)`,
     );
-    params.push(...Array(3).fill(`%${String(req.query.q).slice(0, 200)}%`));
+    params.push(...Array(4).fill(`%${String(req.query.q).slice(0, 200)}%`));
   }
   return {
     where: clauses.length ? " WHERE " + clauses.join(" AND ") : "",
@@ -122,6 +126,28 @@ export function registerDataRoutes(app, db, dataDir) {
     if (!r) throw httpError(404, "ไม่พบรายการงาน");
     res.json({
       ...activity(db, r, req.user),
+      locked: !!(
+        r.date &&
+        db
+          .prepare(
+            "SELECT id FROM period_locks WHERE unit_id=? AND active=1 AND date_from<=? AND date_to>=?",
+          )
+          .get(r.unit_id, r.date, r.date)
+      ),
+      project_id:
+        db
+          .prepare(
+            "SELECT project_id FROM project_activities WHERE activity_id=?",
+          )
+          .get(r.id)?.project_id || null,
+      source_reports: db
+        .prepare(
+          "SELECT a.id,a.title FROM activity_sources s JOIN activities a ON a.id=s.source_activity_id WHERE s.activity_id=?",
+        )
+        .all(r.id),
+      duplicate_reports: db
+        .prepare("SELECT id,title FROM activities WHERE duplicate_of=?")
+        .all(r.id),
       files: db
         .prepare(
           "SELECT id,title,original_name,mime,size,created_at FROM files WHERE activity_id=?",
@@ -196,6 +222,10 @@ export function registerDataRoutes(app, db, dataDir) {
         input.work_id,
       );
     }
+    assertUnlocked(db, record);
+    assertUnlocked(db, input);
+    if (record?.duplicate_of)
+      throw httpError(409, "รายการนี้ระบุว่าซ้ำแล้ว ให้คืนรายการก่อนแก้ไข");
     if (record && input.version !== record.version)
       throw httpError(409, "มีผู้แก้ไขรายการนี้แล้ว กรุณาโหลดข้อมูลใหม่");
     if (
@@ -306,6 +336,11 @@ export function registerDataRoutes(app, db, dataDir) {
             m.file_id,
           );
       }
+      if (input.collaborators !== undefined)
+        db.prepare("UPDATE activities SET collaborators=? WHERE id=?").run(
+          JSON.stringify([...new Set(input.collaborators)]),
+          recordId,
+        );
       const result = db
         .prepare("SELECT * FROM activities WHERE id=?")
         .get(recordId);
@@ -333,6 +368,7 @@ export function registerDataRoutes(app, db, dataDir) {
         .get(reportId);
       const file = db.prepare("SELECT * FROM files WHERE id=?").get(fileId);
       if (!report || !file) throw httpError(404, "ไม่พบรายงานหรือไฟล์");
+      assertUnlocked(db, report);
       if (!canEdit(req.user, report) || !canEdit(req.user, file))
         throw httpError(403, "ไม่มีสิทธิ์แนบไฟล์นี้");
       if (file.activity_id === reportId) return { report, file, already: true };
@@ -540,12 +576,19 @@ export function registerDataRoutes(app, db, dataDir) {
       try {
         detected = textOnly
           ? { mime: "text/plain", ext: "txt" }
-          : await fileTypeFromBuffer(req.file.buffer);
+          : req.file.originalname.toLowerCase().endsWith(".txt") &&
+              !req.file.buffer.includes(0) &&
+              req.file.buffer.length <= 1024 * 1024
+            ? { mime: "text/plain", ext: "txt" }
+            : await fileTypeFromBuffer(req.file.buffer);
       } catch {
         throw httpError(415, "ไฟล์ไม่สมบูรณ์หรือไม่รองรับ");
       }
       if (!detected || (!textOnly && !allowed.has(detected.mime)))
-        throw httpError(415, "รองรับ PDF, Excel, JPG, PNG และ WebP เท่านั้น");
+        throw httpError(
+          415,
+          "รองรับ PDF, Word (.docx), Excel, TXT, JPG, PNG และ WebP เท่านั้น",
+        );
       if (
         detected.mime === "application/x-cfb" &&
         !req.file.originalname.toLowerCase().endsWith(".xls")
@@ -622,9 +665,9 @@ export function registerDataRoutes(app, db, dataDir) {
     }
     if (req.query.q) {
       conditions.push(
-        "(f.title LIKE ? OR f.keywords LIKE ? OR f.description LIKE ?)",
+        "(f.title LIKE ? OR f.keywords LIKE ? OR f.description LIKE ? OR EXISTS(SELECT 1 FROM file_texts ft WHERE ft.file_id=f.id AND ft.text LIKE ?))",
       );
-      params.push(...Array(3).fill(`%${String(req.query.q).slice(0, 200)}%`));
+      params.push(...Array(4).fill(`%${String(req.query.q).slice(0, 200)}%`));
     }
     if (req.query.unlinked === "1") conditions.push("f.activity_id IS NULL");
     if (req.query.attachable === "1") {
@@ -679,9 +722,20 @@ export function registerDataRoutes(app, db, dataDir) {
       )
       .all();
     res.json({
-      items: rows
-        .slice((page - 1) * limit, page * limit)
-        .map((r) => ({ ...r, can_edit: !!r.owner_id && canEdit(req.user, r) })),
+      items: rows.slice((page - 1) * limit, page * limit).map((r) => ({
+        ...r,
+        can_edit: !!r.owner_id && canEdit(req.user, r),
+        analysis: (() => {
+          const a = db
+            .prepare("SELECT payload FROM inbox_analysis WHERE inbox_id=?")
+            .get(r.id);
+          return a ? JSON.parse(a.payload) : null;
+        })(),
+        processing:
+          db
+            .prepare("SELECT state,error FROM inbox_jobs WHERE inbox_id=?")
+            .get(r.id) || null,
+      })),
       total: rows.length,
       page,
       limit,

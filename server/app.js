@@ -1,4 +1,10 @@
 import express from "express";
+import { registerReportDrafts } from "./report-drafts.js";
+import { registerCommunity } from "./community.js";
+import { registerNewsCandidates } from "./news-candidates.js";
+import { registerInboxAnalysis } from "./line-automation.js";
+import { registerInsights } from "./insights.js";
+import { registerExtraction } from "./extraction.js";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { existsSync } from "node:fs";
@@ -201,6 +207,13 @@ export function createApp(options = {}) {
   app.get("/api/meta", (req, res) =>
     res.json({
       roles: ROLES,
+      fiscalStart: JSON.parse(
+        db
+          .prepare(
+            "SELECT value FROM report_settings WHERE key='fiscal_start_month'",
+          )
+          .get().value,
+      ),
       units: db.prepare("SELECT * FROM units ORDER BY sort_order,id").all(),
       works: db.prepare("SELECT * FROM works ORDER BY id").all(),
       categories: db.prepare("SELECT * FROM categories ORDER BY id").all(),
@@ -216,7 +229,11 @@ export function createApp(options = {}) {
           )
           .get().count,
       },
-      ai: { configured: false },
+      ai: {
+        configured: Boolean(process.env.OLLAMA_MODEL),
+        model: process.env.OLLAMA_MODEL || null,
+        documentReader: Boolean(process.env.DOCUMENT_PYTHON),
+      },
       line: {
         receiveConfigured: Boolean(
           process.env.LINE_CHANNEL_SECRET && process.env.LINE_REPORT_GROUP_ID,
@@ -228,6 +245,12 @@ export function createApp(options = {}) {
       },
     }),
   );
+  registerInsights(app, db);
+  registerCommunity(app, db);
+  registerReportDrafts(app, db);
+  registerNewsCandidates(app, db);
+  registerExtraction(app, db, dataDir);
+  registerInboxAnalysis(app, db, dataDir);
   registerDataRoutes(app, db, dataDir);
   registerAdminRoutes(app, db);
   registerNewsRoutes(app, db);

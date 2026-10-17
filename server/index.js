@@ -1,3 +1,4 @@
+import { runSchedules } from "./insights.js";
 import { createApp } from "./app.js";
 const app = createApp();
 const server = app.listen(
@@ -17,3 +18,16 @@ function stop() {
 }
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
+
+// Persistent schedule keys prevent duplicate exports after restarts. No LINE sends occur here.
+const reportTimer = setInterval(
+  () => {
+    try {
+      runSchedules(app.locals.db);
+    } catch (e) {
+      console.error("Scheduled reports:", e.message);
+    }
+  },
+  15 * 60 * 1000,
+);
+reportTimer.unref();

@@ -1,0 +1,4 @@
+pdfplumber>=0.11,<1
+openpyxl>=3.1,<4
+xlrd>=2,<3
+# OCR is optional. Install easyocr separately and provision Thai/English model weights before use.

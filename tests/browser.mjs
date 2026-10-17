@@ -97,6 +97,10 @@ try {
   await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   await page
+    .getByRole("heading", { name: "วิเคราะห์ผลตามหน่วยงาน", exact: true })
+    .waitFor();
+  await page.goto(origin + "/#dashboard/overview");
+  await page
     .getByRole("heading", { name: "ภาพรวมสำนัก", exact: true })
     .waitFor();
   await page.getByText("ยังไม่มีกิจกรรมพร้อมสรุป", { exact: true }).waitFor();
