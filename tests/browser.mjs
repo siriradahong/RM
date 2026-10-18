@@ -227,7 +227,10 @@ try {
   assert.equal(hybridAccount.work_id, assignedWork);
   assert.deepEqual(JSON.parse(hybridAccount.scopes), [2]);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "เพิ่มข้อมูล", exact: true }).click();
+  await page
+    .locator(".sidebar nav")
+    .getByRole("button", { name: "เขียนรายงาน", exact: true })
+    .click();
   await page.getByLabel("ข้อความรายงาน").fill("ประชุมเครือข่าย อสม.");
   await page.locator("input[type=file]").setInputFiles({
     name: "evidence.pdf",

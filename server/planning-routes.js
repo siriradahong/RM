@@ -339,7 +339,7 @@ export function registerPlanningRoutes(app, db) {
     const { from, to } = req.query;
     if (!validDate(from) || !validDate(to) || from > to)
       throw httpError(400, "ช่วงเวลาไม่ถูกต้อง");
-    const items = db
+    let items = db
       .prepare(
         "SELECT e.*,u.name unit_name FROM calendar_events e JOIN units u ON u.id=e.unit_id WHERE e.date BETWEEN ? AND ? ORDER BY e.date,e.start_time",
       )
@@ -355,12 +355,58 @@ export function registerPlanningRoutes(app, db) {
             )
             .get(e.id, req.user.id),
       );
+    items = items.map((e) => ({
+      ...e,
+      event_type: "appointment",
+      key: "event-" + e.id,
+      is_mine:
+        e.owner_id === req.user.id ||
+        !!db
+          .prepare(
+            "SELECT 1 FROM calendar_attendees WHERE event_id=? AND user_id=?",
+          )
+          .get(e.id, req.user.id),
+    }));
+    const tasks = db
+      .prepare(
+        `SELECT t.id,t.title,t.due_date date,t.start_time,t.end_time,t.status,
+      t.assignee_id,t.project_id,t.source_quote source_text,p.title project_title,p.unit_id,p.work_id,
+      u.name unit_name,a.name assignee_name FROM project_tasks t JOIN projects p ON p.id=t.project_id
+      JOIN units u ON u.id=p.unit_id JOIN users a ON a.id=t.assignee_id WHERE t.due_date BETWEEN ? AND ?`,
+      )
+      .all(from, to)
+      .filter(
+        (t) =>
+          req.user.roles.includes("executive") ||
+          manages(req.user, t) ||
+          t.assignee_id === req.user.id,
+      )
+      .map((t) => ({
+        ...t,
+        event_type: "task",
+        key: "task-" + t.id,
+        attendee_ids: [t.assignee_id],
+      }));
+    const attendees = (e) =>
+      e.event_type === "task"
+        ? e.attendee_ids
+        : db
+            .prepare("SELECT user_id FROM calendar_attendees WHERE event_id=?")
+            .all(e.id)
+            .map((r) => r.user_id);
+    items = [...items, ...tasks].sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        (a.start_time || "").localeCompare(b.start_time || ""),
+    );
     const conflicts = [];
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++) {
         const a = items[i],
           b = items[j];
         if (
+          a.status !== "completed" &&
+          b.status !== "completed" &&
           a.date === b.date &&
           a.start_time &&
           a.end_time &&
@@ -369,15 +415,12 @@ export function registerPlanningRoutes(app, db) {
           a.start_time < b.end_time &&
           b.start_time < a.end_time
         ) {
-          const ids = db
-            .prepare(
-              "SELECT user_id FROM calendar_attendees WHERE event_id=? INTERSECT SELECT user_id FROM calendar_attendees WHERE event_id=?",
-            )
-            .all(a.id, b.id);
+          const ids = attendees(a).filter((id) => attendees(b).includes(id));
           if (ids.length)
             conflicts.push({
               ids: [a.id, b.id],
-              attendees: ids.map((r) => r.user_id),
+              keys: [a.key, b.key],
+              attendees: ids,
             });
         }
       }

@@ -20,6 +20,7 @@ import ReadingStatus from "./reading-status";
 import ReportDrafts from "./report-drafts";
 import Reports from "./reports";
 import Projects from "./projects";
+import ScheduleCalendar from "./schedule-calendar";
 import React, {
   useState,
   useEffect,
@@ -458,22 +459,42 @@ function App() {
     user.roles.some((r) =>
       ["staff", "head", "center_head", "executive"].includes(r),
     );
+  const current = path.split("/")[0],
+    view = path.split("/")[1];
   const menu = [
-    ...(canReport ? [["dashboard", "แดชบอร์ด", LayoutDashboard]] : []),
-    ...(canWrite ? [["import", "เพิ่มข้อมูล", Plus]] : []),
-    ["library", "คลังข้อมูล", FolderOpen],
-    ...(canReport
+    ...(canWrite
       ? [
-          ["projects", "โครงการและงาน", CalendarDays],
-          ["reports", "รายงานสรุป", FileText],
+          ["inbox", "รายงานจาก LINE", Inbox],
+          ["import", "เขียนรายงาน", FileText],
         ]
       : []),
+    ...(canReport
+      ? [
+          ["dashboard/mine", "แดชบอร์ดของฉัน", LayoutDashboard],
+          ["projects", "ติดตามโครงการ", CalendarDays],
+          ["calendar", "ปฏิทิน", CalendarDays],
+        ]
+      : []),
+    ...(user.delegated ||
+    user.roles.some((r) => ["head", "center_head"].includes(r))
+      ? [["dashboard/unit", "แดชบอร์ดหน่วยงาน", Users]]
+      : []),
+    ...(user.roles.includes("executive")
+      ? [["dashboard/overview", "แดชบอร์ดสำนัก", Building2]]
+      : []),
     ["feed", "ฟีดข่าวภายใน", Newspaper],
+    ["library", "คลังข้อมูล", FolderOpen],
+    ...(canReport ? [["reports", "รายงานสรุป", FileText]] : []),
     ["workspace", "พื้นที่งานของฉัน", Clock],
     ...(isAdmin ? [["admin", "ดูแลระบบ", Settings]] : []),
   ];
-  const current = path.split("/")[0],
-    view = path.split("/")[1];
+  const activeMenu = (p) =>
+    p.includes("/")
+      ? path === p
+      : current === p ||
+        (p === "reports" && current === "drafts") ||
+        (p === "feed" && current === "news") ||
+        (p === "admin" && current === "audit");
   const requestedDashboard = view || landing(user).split("/")[1];
   const dashboardMode =
     requestedDashboard === "overview" && user.roles.includes("executive")
@@ -513,8 +534,16 @@ function App() {
     );
   else if (current === "projects" && canReport)
     page = (
-      <Projects user={user} meta={meta} navigate={navigate} notify={notify} />
+      <Projects
+        user={user}
+        meta={meta}
+        navigate={navigate}
+        notify={notify}
+        projectId={view}
+      />
     );
+  else if (current === "calendar" && canReport)
+    page = <ScheduleCalendar user={user} meta={meta} navigate={navigate} />;
   else if (current === "workspace")
     page = (
       <Workspace
@@ -584,36 +613,13 @@ function App() {
           {menu.map(([p, title, Icon]) => (
             <button
               key={p}
-              className={
-                current === p ||
-                (p === "reports" && current === "drafts") ||
-                (p === "import" && current === "inbox") ||
-                (p === "feed" && current === "news") ||
-                (p === "admin" && current === "audit")
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                navigate(
-                  p === "dashboard"
-                    ? landing({
-                        ...user,
-                        roles: user.roles.filter((r) =>
-                          [
-                            "staff",
-                            "head",
-                            "center_head",
-                            "executive",
-                          ].includes(r),
-                        ),
-                      }).replace(/^(admin|news)$/, "dashboard/overview")
-                    : p,
-                )
-              }
+              className={activeMenu(p) ? "active" : ""}
+              aria-current={activeMenu(p) ? "page" : undefined}
+              onClick={() => navigate(p)}
             >
               <Icon size={20} />
               <span>{title}</span>
-              {current === p && <ChevronRight size={15} />}
+              {activeMenu(p) && <ChevronRight size={15} />}
             </button>
           ))}
         </nav>
@@ -648,7 +654,7 @@ function App() {
                     ? "ฟีดข่าวภายใน / จัดการข่าว"
                     : current === "audit"
                       ? "ดูแลระบบ / ประวัติการแก้ไข"
-                      : menu.find((x) => x[0] === current)?.[1] ||
+                      : menu.find((x) => activeMenu(x[0]))?.[1] ||
                         "รายละเอียดข้อมูล"}
             </b>
           </div>

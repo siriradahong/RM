@@ -65,6 +65,16 @@ export function migrateScope(db) {
     CREATE INDEX calendar_event_dates ON calendar_events(date);
     INSERT INTO schema_migrations(version) VALUES(11);
     COMMIT;`);
+  if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version=12").get())
+    db.exec(`BEGIN IMMEDIATE;
+      ALTER TABLE projects ADD COLUMN source_text TEXT NOT NULL DEFAULT '';
+      ALTER TABLE projects ADD COLUMN submission_key TEXT;
+      CREATE UNIQUE INDEX project_submission_key ON projects(submission_key) WHERE submission_key IS NOT NULL;
+      ALTER TABLE project_tasks ADD COLUMN start_time TEXT;
+      ALTER TABLE project_tasks ADD COLUMN end_time TEXT;
+      ALTER TABLE project_tasks ADD COLUMN source_quote TEXT NOT NULL DEFAULT '';
+      INSERT INTO schema_migrations(version) VALUES(12);
+      COMMIT;`);
   const defaults = {
     reminders_enabled: true,
     summaries_enabled: true,

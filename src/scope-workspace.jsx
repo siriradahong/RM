@@ -868,7 +868,7 @@ function Events({ user, meta }) {
               </p>
             )}
             {d.items.map((e) => (
-              <article className="scope-list-item" key={e.id}>
+              <article className="scope-list-item" key={e.key || e.id}>
                 <div>
                   <strong>{e.title}</strong>
                   <p>
@@ -901,7 +901,7 @@ function Events({ user, meta }) {
     </>
   );
 }
-function EventForm({ user, meta, onClose, saved }) {
+export function EventForm({ user, meta, onClose, saved }) {
   const [form, setForm] = useState({
       title: "",
       date: today(),

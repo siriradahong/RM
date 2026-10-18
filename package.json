@@ -14,14 +14,15 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "admin:create": "node --env-file-if-exists=.env scripts/create-admin.mjs",
     "backup": "node --env-file-if-exists=.env scripts/backup.mjs",
-    "test": "node --test tests/api.test.js tests/demo.test.mjs tests/client-api.test.mjs tests/workflows.test.mjs tests/drafts.test.mjs tests/extraction.test.mjs tests/insights.test.mjs tests/scope.test.mjs",
+    "test": "node --test tests/api.test.js tests/demo.test.mjs tests/client-api.test.mjs tests/workflows.test.mjs tests/drafts.test.mjs tests/extraction.test.mjs tests/insights.test.mjs tests/scope.test.mjs tests/project-intake.test.mjs",
     "test:browser": "node tests/browser.mjs",
     "demo:seed": "node --env-file-if-exists=.env scripts/seed-demo.mjs",
     "test:workflows": "node tests/workflows-browser.mjs",
     "test:drafts": "node tests/drafts-browser.mjs",
     "ocr:setup": "node --env-file-if-exists=.env scripts/setup-ocr.mjs",
     "test:usability": "node tests/usability-browser.mjs",
-    "test:scope": "node tests/scope-browser.mjs"
+    "test:scope": "node tests/scope-browser.mjs",
+    "test:projects": "node tests/project-intake-browser.mjs"
   },
   "dependencies": {
     "@fontsource/noto-sans-thai": "^5.3.0",

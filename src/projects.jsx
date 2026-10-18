@@ -1,5 +1,6 @@
 import { Action, EditDialog } from "./scope-workspace";
-import React, { useState } from "react";
+import ProjectIntake from "./project-intake";
+import React, { useEffect, useState } from "react";
 import { api, query } from "./api";
 import {
   Button,
@@ -19,8 +20,15 @@ const labels = {
   in_progress: "กำลังดำเนินการ",
   submitted: "รอหัวหน้าตรวจรับ",
 };
-export default function Projects({ user, meta, navigate, notify }) {
+export default function Projects({ user, meta, navigate, notify, projectId }) {
   const resource = useData("/projects");
+  const [intake, setIntake] = useState(false);
+  useEffect(() => {
+    if (resource.data && projectId)
+      document
+        .getElementById("project-" + projectId)
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [resource.data, projectId]);
   const [show, setShow] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -53,14 +61,31 @@ export default function Projects({ user, meta, navigate, notify }) {
   return (
     <>
       <Heading
-        title="โครงการและงาน"
+        title="ติดตามโครงการ"
         actions={
-          user.roles.some((r) =>
-            ["head", "center_head", "executive"].includes(r),
-          ) && (
-            <Button primary onClick={() => setShow(!show)}>
-              {show ? "ปิดแบบฟอร์ม" : "สร้างโครงการ"}
-            </Button>
+          (user.delegated ||
+            user.roles.some((r) =>
+              ["head", "center_head", "executive"].includes(r),
+            )) && (
+            <div className="report-actions">
+              <Button
+                primary
+                onClick={() => {
+                  setShow(false);
+                  setIntake(true);
+                }}
+              >
+                รับโครงการและแจกงาน
+              </Button>
+              <Button
+                onClick={() => {
+                  setIntake(false);
+                  setShow(!show);
+                }}
+              >
+                {show ? "ปิดแบบฟอร์ม" : "สร้างโครงการเอง"}
+              </Button>
+            </div>
           )
         }
       >
@@ -74,6 +99,19 @@ export default function Projects({ user, meta, navigate, notify }) {
           ใช้ได้เมื่อตั้งค่าการเชื่อมต่อแล้ว
         </p>
       </details>
+      {intake && (
+        <ProjectIntake
+          user={user}
+          meta={meta}
+          notify={notify}
+          onCancel={() => setIntake(false)}
+          onSaved={(p) => {
+            setIntake(false);
+            resource.reload();
+            navigate("projects/" + p.id);
+          }}
+        />
+      )}
       {show && (
         <form className="panel project-form" onSubmit={create}>
           <h2>สร้างโครงการ</h2>
@@ -204,7 +242,7 @@ function ProjectCard({ project: p, user, navigate, notify, reload }) {
     }
   }
   return (
-    <section className="panel project-card">
+    <section className="panel project-card" id={"project-" + p.id}>
       <div className="panel-heading">
         <div>
           <h2>{p.title}</h2>
@@ -216,6 +254,17 @@ function ProjectCard({ project: p, user, navigate, notify, reload }) {
           {labels[p.status]}
         </span>
       </div>
+      <div className="report-actions">
+        <Button onClick={() => navigate("calendar/" + p.due_date.slice(0, 7))}>
+          ดูงานในปฏิทิน
+        </Button>
+      </div>
+      {p.source_text && p.can_manage && (
+        <details>
+          <summary>ต้นฉบับโครงการ</summary>
+          <p className="preserve-text">{p.source_text}</p>
+        </details>
+      )}
       {p.description && (
         <details>
           <summary>รายละเอียดโครงการ</summary>
@@ -447,7 +496,9 @@ function ProjectPerformance({ project: p, navigate, reload }) {
   );
 }
 function AssignTask({ project: p, onSaved }) {
-  const members = useData("/projects/members?unit=" + p.unit_id);
+  const members = useData(
+    "/projects/members?" + query({ unit: p.unit_id, work: p.work_id }),
+  );
   const [form, setForm] = useState({
       title: "",
       assignee_id: "",
@@ -552,7 +603,8 @@ function TaskRow({ task: t, project: p, navigate, reload, notify }) {
         <div>
           <h3>{t.title}</h3>
           <p>
-            {t.assignee_name} · กำหนดส่ง {dateText(t.due_date)}
+            {t.assignee_name} · กำหนดส่ง {dateText(t.due_date)}{" "}
+            {t.start_time ? `· ${t.start_time}–${t.end_time}` : ""}
           </p>
         </div>
         <span className={"badge " + (t.overdue ? "pending" : "")}>

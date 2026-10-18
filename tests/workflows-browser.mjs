@@ -76,8 +76,8 @@ try {
       .waitFor();
   }
   await login(p, "head");
-  await p.getByRole("button", { name: "โครงการและงาน", exact: true }).click();
-  await p.getByRole("button", { name: "สร้างโครงการ", exact: true }).click();
+  await p.getByRole("button", { name: "ติดตามโครงการ", exact: true }).click();
+  await p.getByRole("button", { name: "สร้างโครงการเอง", exact: true }).click();
   await p
     .getByLabel("ชื่อโครงการ", { exact: true })
     .fill("ติดตามสุขภาพชุมชน เดือนตุลาคม");

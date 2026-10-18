@@ -70,13 +70,13 @@ try {
   await p.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await p.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   await p.getByRole("heading", { name: "รายงานของฉัน", exact: true }).waitFor();
-  assert.equal(await p.locator(".sidebar nav button").count(), 7);
+  assert.equal(await p.locator(".sidebar nav button").count(), 9);
   assert.equal(
     await p
       .locator(".sidebar nav")
       .getByRole("button", { name: "รายงานจาก LINE", exact: true })
       .count(),
-    0,
+    1,
   );
   await p.getByLabel("วันที่ในรอบรายงาน", { exact: true }).fill("2026-10-18");
   await p.getByLabel("รอบรายงาน", { exact: true }).selectOption("quarter");
