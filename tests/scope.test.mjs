@@ -959,17 +959,18 @@ describe(
           ).status,
           400,
         );
-        let correct = false;
+        let correct = false,
+          expectedNonce = nonce;
         globalThis.fetch = async (url, init) => {
           if (String(url) === "https://api.line.me/oauth2/v2.1/token")
             return new Response(JSON.stringify({ id_token: "verified-token" }));
           if (String(url) === "https://api.line.me/oauth2/v2.1/verify") {
-            assert.equal(init.body.get("nonce"), nonce);
+            assert.equal(init.body.get("nonce"), expectedNonce);
             return new Response(
               JSON.stringify({
                 sub: "U" + "d".repeat(32),
                 aud: "scope-login",
-                nonce: correct ? nonce : "wrong",
+                nonce: correct ? expectedNonce : "wrong",
                 exp: Math.floor(Date.now() / 1000) + 600,
                 name: "บัญชี LINE ทดสอบ",
               }),
@@ -998,6 +999,40 @@ describe(
             .get("U" + "d".repeat(32)),
           undefined,
         );
+        const next = await fetch0(base + "/auth/line/start", {
+            headers: { Cookie: sessions.staff.cookie },
+            redirect: "manual",
+          }),
+          params = new URL(next.headers.get("location")).searchParams;
+        expectedNonce = params.get("nonce");
+        correct = true;
+        const callback = await fetch0(
+          base +
+            "/auth/line/callback?state=" +
+            params.get("state") +
+            "&code=code",
+          {
+            headers: {
+              Cookie:
+                next.headers.get("set-cookie").split(";")[0] +
+                "; " +
+                sessions.staff.cookie,
+            },
+            redirect: "manual",
+          },
+        );
+        assert.equal(callback.status, 302);
+        assert.match(
+          callback.headers.get("location"),
+          /#line-register\?token=/,
+        );
+        assert.ok(
+          callback.headers
+            .getSetCookie()
+            .some((c) => c.startsWith("rm_session=;")),
+        );
+        assert.equal((await req("/auth/me", "staff")).status, 401);
+        await login("staff");
       } finally {
         globalThis.fetch = fetch0;
         for (const k of keys) {

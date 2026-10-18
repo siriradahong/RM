@@ -129,6 +129,11 @@ export function registerLineLogin(app, db, cookieOptions) {
       session(res, user);
       return res.redirect(base() + "/#");
     }
+    if (req.session)
+      db.prepare("DELETE FROM sessions WHERE token_hash=?").run(
+        req.session.token_hash,
+      );
+    res.clearCookie("rm_session", { ...cookieOptions, maxAge: undefined });
     const raw = token();
     db.prepare("INSERT INTO line_registrations VALUES(?,?,?,?,?)").run(
       digest(raw),

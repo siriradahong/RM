@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../server/app.js";
-import { hashPassword } from "../server/security.js";
+import { hashPassword, digest } from "../server/security.js";
 const dir = await mkdtemp(join(tmpdir(), "rm-scope-browser-")),
   origin = "http://127.0.0.1:4179",
   app = createApp({ dataDir: dir, origins: origin, disableRateLimit: true }),
@@ -104,6 +104,42 @@ try {
     await p.goto(origin + "/#" + path);
     await p.locator("main").waitFor();
   }
+  const registrationToken = "f".repeat(64);
+  db.prepare("INSERT INTO line_registrations VALUES(?,?,?,?,?)").run(
+    digest(registrationToken),
+    "U" + "f".repeat(32),
+    "บุคลากรทดสอบลงทะเบียน",
+    null,
+    Date.now() + 60000,
+  );
+  const registration = await browser.newPage();
+  await registration.goto(
+    origin + "/#line-register?token=" + registrationToken,
+  );
+  await registration
+    .getByRole("heading", { name: "ลงทะเบียนบุคลากรผ่าน LINE", exact: true })
+    .waitFor();
+  const division = registration.getByLabel("ฝ่าย", { exact: true });
+  await division.locator('option[value="1"]').waitFor({ state: "attached" });
+  assert.equal(await division.locator("option").count(), 10);
+  await division.selectOption("1");
+  assert.equal(
+    await registration
+      .getByLabel("งาน/ศูนย์", { exact: true })
+      .locator("option")
+      .count(),
+    4,
+  );
+  assert.equal(
+    await division
+      .getByRole("option", { name: "ส่วนส่งเสริมสาธารณสุข", exact: true })
+      .count(),
+    0,
+  );
+  await shot(registration, "line-registration-desktop");
+  await registration.setViewportSize({ width: 390, height: 844 });
+  await shot(registration, "line-registration-mobile");
+  await registration.close();
   const admin = await login("admin");
   await admin
     .getByRole("tab", { name: "หน่วยงานและหมวดข้อมูล", exact: true })

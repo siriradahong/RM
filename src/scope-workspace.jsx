@@ -1,3 +1,4 @@
+import { UnitOptions, WorkOptions } from "./organization";
 import React, { useState, useEffect } from "react";
 import { api, query } from "./api";
 import {
@@ -2164,7 +2165,16 @@ export function LineRegistration({ onLogin }) {
   return (
     <div className="login-page">
       <section className="panel form">
+        <img
+          className="registration-seal"
+          src="/municipality-seal.png"
+          alt="ตราเทศบาลนครขอนแก่น"
+        />
         <h1>ลงทะเบียนบุคลากรผ่าน LINE</h1>
+        <p className="muted">เลือกฝ่ายและงานตามโครงสร้างของสำนัก</p>
+        <a className="text-link" href="/">
+          กลับหน้าเข้าสู่ระบบ
+        </a>
         <DataState resource={r}>
           {(d) => (
             <form
@@ -2208,11 +2218,9 @@ export function LineRegistration({ onLogin }) {
                   }
                 >
                   <option value="">เลือกฝ่าย</option>
-                  {d.units.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
+                  <UnitOptions
+                    units={d.units.map((u) => ({ ...u, active: true }))}
+                  />
                 </select>
               </Field>
               <Field label="งาน/ศูนย์">
@@ -2222,13 +2230,11 @@ export function LineRegistration({ onLogin }) {
                   onChange={(e) => setF({ ...f, work_id: e.target.value })}
                 >
                   <option value="">เลือกงาน</option>
-                  {d.works
-                    .filter((w) => w.unit_id === Number(f.unit_id))
-                    .map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
+                  <WorkOptions
+                    works={d.works.map((w) => ({ ...w, active: true }))}
+                    unitId={f.unit_id}
+                    selected={f.work_id}
+                  />
                 </select>
               </Field>
               {[
