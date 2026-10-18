@@ -1,6 +1,6 @@
 import { notify } from "./jobs.js";
 import { applyTaskAction } from "./task-actions.js";
-import { manages } from "./access.js";
+import { manages, canRead } from "./access.js";
 import { z } from "zod";
 import { httpError, isHeadForUnit } from "./security.js";
 import { transaction, writeAudit } from "./db.js";
@@ -93,6 +93,7 @@ export function registerProjectRoutes(app, db) {
             `SELECT id,title,status,result,metrics FROM activities WHERE status='ready' AND duplicate_of IS NULL AND id IN (${sourceIds.map(() => "?").join(",")})`,
           )
           .all(...sourceIds)
+          .filter((r) => canRead(db, req.user, r))
       : [];
     const target = p.target_json ? JSON.parse(p.target_json) : null;
     const values = target
@@ -117,9 +118,17 @@ export function registerProjectRoutes(app, db) {
       can_manage: manage,
       tasks: tasks.map((t) => ({
         ...t,
+        activity_title:
+          t.activity_id && !canRead(db, req.user, { id: t.activity_id })
+            ? "รายงานหลักฐานจำกัดสิทธิ์"
+            : t.activity_title,
+        can_read_activity:
+          !t.activity_id || canRead(db, req.user, { id: t.activity_id }),
         overdue: t.status !== "completed" && t.due_date < today(),
         can_submit:
-          req.user.roles.includes("staff") && t.assignee_id === req.user.id,
+          req.user.roles.some((r) =>
+            ["staff", "head", "center_head"].includes(r),
+          ) && t.assignee_id === req.user.id,
       })),
       history: db
         .prepare(

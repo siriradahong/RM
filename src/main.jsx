@@ -4105,6 +4105,15 @@ function AuditChanges({ entry }) {
       );
     return typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
   };
+  if (entry.redacted)
+    return (
+      <Notice>
+        เปลี่ยนแปลง{" "}
+        {(entry.changed_fields || []).map((k) => labels[k] || k).join(" / ") ||
+          "ข้อมูลรายการ"}{" "}
+        · แสดงผู้ทำรายการและเวลาได้ แต่ค่ารายละเอียดจำกัดตามสิทธิ์อ่านต้นทาง
+      </Notice>
+    );
   return fields.length ? (
     <div className="table-scroll audit-changes">
       <table>

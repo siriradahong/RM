@@ -566,6 +566,7 @@ function TaskRow({ task: t, project: p, navigate, reload, notify }) {
           รายงานหลักฐาน:{" "}
           <button
             className="table-link"
+            disabled={t.can_read_activity === false}
             onClick={() => navigate("activity/" + t.activity_id)}
           >
             {t.activity_title}

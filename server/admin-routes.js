@@ -1,3 +1,4 @@
+import { auditForUser } from "./access.js";
 import { userSchema } from "./validation.js";
 import { hashPassword, httpError } from "./security.js";
 import { publicUser, transaction, writeAudit } from "./db.js";
@@ -178,7 +179,8 @@ export function registerAdminRoutes(app, db) {
         .prepare(
           `SELECT * FROM audits${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
         )
-        .all(...params, limit, (page - 1) * limit),
+        .all(...params, limit, (page - 1) * limit)
+        .map((entry) => auditForUser(db, req.user, entry)),
       total: db
         .prepare(`SELECT COUNT(*) count FROM audits${where}`)
         .get(...params).count,

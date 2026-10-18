@@ -15,7 +15,7 @@ import { publicUser, transaction, writeAudit } from "./db.js";
 function newsRow(row) {
   return row ? { ...row, image_ids: JSON.parse(row.image_ids) } : null;
 }
-const newsSelect = `SELECT n.*,COALESCE(n.activity_date,a.date) AS date,COALESCE(n.activity_area,a.area) AS area,COALESCE(n.publication_unit_id,a.unit_id) AS unit_id,COALESCE(n.publication_unit_name,u.name) AS unit_name,a.title AS activity_title FROM news n JOIN activities a ON a.id=n.activity_id JOIN units u ON u.id=a.unit_id`;
+const newsSelect = `SELECT n.*,COALESCE(n.activity_date,a.date) AS date,COALESCE(n.activity_area,a.area) AS area,COALESCE(n.publication_unit_id,a.unit_id) AS unit_id,COALESCE(n.publication_unit_name,u.name) AS unit_name FROM news n JOIN activities a ON a.id=n.activity_id JOIN units u ON u.id=a.unit_id`;
 export function registerNewsRoutes(app, db) {
   app.get("/api/news", (req, res) => {
     const params = [],

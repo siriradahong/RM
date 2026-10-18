@@ -1,6 +1,8 @@
 import { scanFile } from "./file-policy.js";
 import {
   contentScope,
+  fileMetadata,
+  privateFileReadable,
   fileScope,
   assertRead,
   assertFileRead,
@@ -839,11 +841,21 @@ export function registerDataRoutes(app, db, dataDir) {
         access.push("f.owner_id=?");
         params.push(req.user.id);
       }
-      if (req.user.roles.includes("head") && req.user.scopes.length) {
+      if (
+        (req.user.roles.includes("head") || req.user.delegated) &&
+        req.user.scopes.length
+      ) {
         access.push(
           `f.unit_id IN (${req.user.scopes.map(() => "?").join(",")})`,
         );
         params.push(...req.user.scopes);
+      }
+      if (
+        (req.user.roles.includes("center_head") || req.user.delegated) &&
+        req.user.work_scopes.length
+      ) {
+        access.push(`f.work_id IN (${req.user.work_scopes.map(() => "?")})`);
+        params.push(...req.user.work_scopes);
       }
       conditions.push(access.length ? "(" + access.join(" OR ") + ")" : "0=1");
     }
@@ -861,7 +873,8 @@ export function registerDataRoutes(app, db, dataDir) {
         .prepare(
           `SELECT f.id,EXISTS(SELECT 1 FROM media_retention mr WHERE mr.file_id=f.id AND mr.state IN ('purging','purged')) purged,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.description,f.activity_id,f.unit_id,f.work_id,f.owner_id,f.created_at,u.name AS unit_name,w.name AS work_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id LEFT JOIN works w ON w.id=f.work_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
         )
-        .all(...params, limit, (page - 1) * limit),
+        .all(...params, limit, (page - 1) * limit)
+        .map((file) => fileMetadata(db, req.user, file)),
     });
   });
   app.get("/api/files/:id/content", (req, res) => {
@@ -884,7 +897,7 @@ export function registerDataRoutes(app, db, dataDir) {
     res.set("Content-Type", f.mime);
     res.set(
       "Content-Disposition",
-      `${req.query.download === "1" || !["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(f.mime) ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.original_name)}`,
+      `${req.query.download === "1" || !["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(f.mime) ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(fileMetadata(db, req.user, f).original_name)}`,
     );
     res.sendFile(resolve(dataDir, "uploads", f.storage_name));
   });

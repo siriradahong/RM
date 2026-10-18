@@ -185,6 +185,73 @@ describe(
         0,
       );
     });
+    it("shows audit identities and changed field names without leaking restricted original values", async () => {
+      const a = (await req("/activities/" + a1.id)).data;
+      const value = "รายละเอียดเฉพาะเจ้าหน้าที่ทดสอบที่ไม่ให้แอดมินอ่าน";
+      assert.equal(
+        (
+          await req("/activities/" + a.id, "staff", "PUT", {
+            ...a,
+            file_ids: [],
+            inbox_ids: [],
+            result: value,
+          })
+        ).status,
+        200,
+      );
+      const logs = (await req("/admin/audits?entity=activity", "admin")).data
+        .items;
+      const entry = logs.find(
+        (x) => x.entity_id === a.id && x.action === "แก้ไขรายการงาน",
+      );
+      assert.ok(entry.redacted);
+      assert.ok(entry.changed_fields.includes("result"));
+      assert.equal(entry.before_json, null);
+      assert.equal(entry.after_json, null);
+      assert.ok(entry.actor_name);
+      assert.ok(!JSON.stringify(logs).includes(value));
+      await req("/activities/" + a.id, "staff", "PUT", {
+        ...a,
+        version: a.version + 1,
+        file_ids: [],
+        inbox_ids: [],
+      });
+    });
+    it("publishes only selected image bytes without exposing its private description or source metadata", async () => {
+      const imageId = Number(
+        db
+          .prepare(
+            "INSERT INTO files(original_name,storage_name,mime,size,title,purpose,unit_id,work_id,owner_id,activity_id,description) VALUES('private-name.jpg','public-test.jpg','image/jpeg',8,'ชื่อรูปส่วนตัว','evidence',1,?,?,?,'ข้อความต้นฉบับส่วนตัวที่ห้ามเปิดให้คนอื่น')",
+          )
+          .run(works[1], users.staff, a1.id).lastInsertRowid,
+      );
+      await writeFile(join(dir, "uploads", "public-test.jpg"), "testdata");
+      const pub = Number(
+        db
+          .prepare(
+            "INSERT INTO news(activity_id,title,body,image_ids,status,author_id,published_at) VALUES(?,'ข่าวที่ตรวจรูปแล้ว','เนื้อหาข่าว',?,'published',?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+          )
+          .run(a1.id, JSON.stringify([imageId]), users.pr).lastInsertRowid,
+      );
+      assert.equal(
+        (await req("/news/" + pub, "admin")).data.activity_title,
+        undefined,
+      );
+      const file = (await req("/files", "admin")).data.items.find(
+        (f) => f.id === imageId,
+      );
+      assert.equal(file.description, "");
+      assert.equal(file.title, "รูปประกอบข่าว");
+      assert.equal(file.activity_id, null);
+      const content = await req("/files/" + imageId + "/content", "admin");
+      assert.equal(content.status, 200);
+      assert.ok(
+        !content.headers.get("content-disposition").includes("private-name"),
+      );
+      assert.equal((await req("/activities/" + a1.id, "admin")).status, 404);
+      db.prepare("DELETE FROM news WHERE id=?").run(pub);
+      db.prepare("DELETE FROM files WHERE id=?").run(imageId);
+    });
     it("head and center scopes never imply access to another unit or sibling work", async () => {
       assert.equal((await req("/activities/" + a2.id, "head")).status, 404);
       assert.equal((await req("/activities/" + a2.id, "center")).status, 404);
@@ -639,6 +706,59 @@ describe(
         db.prepare("SELECT COUNT(*) n FROM project_tasks").get().n,
         n + 1,
       );
+    });
+    it("does not leak project source details if a report is reassigned outside the reader scope", async () => {
+      let project = (await req("/projects/" + projectId, "center")).data;
+      const assigned = await req(
+        "/projects/" + projectId + "/tasks",
+        "center",
+        "POST",
+        {
+          title: "งานของทีมอีกคน",
+          assignee_id: users.peer,
+          due_date: "2026-10-29",
+          version: project.version,
+        },
+      );
+      assert.equal(assigned.status, 201);
+      const task = assigned.data.tasks.find(
+        (t) => t.assignee_id === users.peer,
+      );
+      assert.equal(
+        (
+          await req("/project-tasks/" + task.id + "/action", "peer", "POST", {
+            action: "submit",
+            activity_id: peerReport.id,
+            version: task.version,
+          })
+        ).status,
+        200,
+      );
+      const source = (await req("/activities/" + peerReport.id, "peer")).data;
+      db.prepare("UPDATE users SET scopes='[1,2]' WHERE id=?").run(users.head2);
+      const moved = await req("/activities/" + source.id, "head2", "PUT", {
+        ...source,
+        unit_id: 2,
+        work_id: works[2],
+        file_ids: [],
+        inbox_ids: [],
+      });
+      assert.equal(moved.status, 200);
+      const limited = (await req("/projects/" + projectId, "head")).data;
+      assert.ok(!limited.performance.sources.some((a) => a.id === source.id));
+      assert.equal(
+        limited.tasks.find((t) => t.id === task.id).can_read_activity,
+        false,
+      );
+      assert.ok(!JSON.stringify(limited).includes(source.title));
+      await req("/activities/" + source.id, "head2", "PUT", {
+        ...moved.data,
+        unit_id: 1,
+        work_id: works[1],
+        file_ids: [],
+        inbox_ids: [],
+      });
+      db.prepare("UPDATE users SET scopes='[2]' WHERE id=?").run(users.head2);
     });
     it("stores referenced budgets and planned communities without invented targets", async () => {
       assert.equal((await req("/communities")).data.items.length, 0);

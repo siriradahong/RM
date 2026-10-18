@@ -151,3 +151,114 @@ export function assertUnlocked(db, user, row) {
   )
     throw httpError(409, "ปิดรอบรายงานแล้ว กรุณาขอแก้ไขจากหัวหน้าก่อน");
 }
+
+export function privateFileReadable(db, user, file) {
+  return Boolean(
+    file &&
+    (user.roles.includes("executive") ||
+      file.owner_id === user.id ||
+      manages(user, file) ||
+      (file.activity_id && canRead(db, user, { id: file.activity_id }))),
+  );
+}
+export function fileMetadata(db, user, file) {
+  if (privateFileReadable(db, user, file)) return file;
+  return {
+    ...file,
+    title: "รูปประกอบข่าว",
+    original_name:
+      "news-image." +
+      ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[
+        file.mime
+      ] || "bin"),
+    description: "",
+    keywords: "",
+    owner_name: "",
+    owner_id: null,
+    activity_id: null,
+  };
+}
+export function auditForUser(db, user, entry) {
+  const configuration = new Set([
+    "user",
+    "units",
+    "works",
+    "categories",
+    "scope_settings",
+    "summary_template",
+    "hr_template",
+    "delegation",
+    "period_lock",
+    "role_request",
+    "scheduler",
+    "line_event",
+  ]);
+  let allowed = configuration.has(entry.entity),
+    row;
+  if (entry.entity === "activity")
+    allowed = canRead(db, user, { id: entry.entity_id });
+  else if (entry.entity === "file")
+    allowed = privateFileReadable(
+      db,
+      user,
+      db.prepare("SELECT * FROM files WHERE id=?").get(entry.entity_id),
+    );
+  else if (
+    ["project", "plan", "project_task", "project_expense"].includes(
+      entry.entity,
+    )
+  ) {
+    if (entry.entity === "project")
+      row = db
+        .prepare("SELECT * FROM projects WHERE id=?")
+        .get(entry.entity_id);
+    if (entry.entity === "plan")
+      row = db.prepare("SELECT * FROM plans WHERE id=?").get(entry.entity_id);
+    if (entry.entity === "project_task")
+      row = db
+        .prepare(
+          "SELECT p.* FROM project_tasks t JOIN projects p ON p.id=t.project_id WHERE t.id=?",
+        )
+        .get(entry.entity_id);
+    if (entry.entity === "project_expense")
+      row = db
+        .prepare(
+          "SELECT p.* FROM project_expenses e JOIN projects p ON p.id=e.project_id WHERE e.id=?",
+        )
+        .get(entry.entity_id);
+    allowed = !!row && (user.roles.includes("executive") || manages(user, row));
+  } else if (entry.entity === "news") allowed = user.roles.includes("pr");
+  else if (entry.entity === "hr_export")
+    allowed = !!db
+      .prepare("SELECT 1 FROM hr_exports WHERE id=? AND user_id=?")
+      .get(entry.entity_id, user.id);
+  else if (entry.entity === "workflow_proposal")
+    allowed = !!db
+      .prepare("SELECT 1 FROM workflow_proposals WHERE id=? AND owner_id=?")
+      .get(entry.entity_id, user.id);
+  else if (entry.entity === "summary_draft") {
+    const draft = db
+      .prepare("SELECT * FROM summary_drafts WHERE id=?")
+      .get(entry.entity_id);
+    allowed =
+      !!draft &&
+      (draft.owner_id === user.id ||
+        user.roles.some((r) =>
+          ["head", "center_head", "executive"].includes(r),
+        ) ||
+        user.delegated) &&
+      JSON.parse(draft.snapshot_json).rows.every((r) => canRead(db, user, r));
+  }
+  if (allowed) return entry;
+  const before = JSON.parse(entry.before_json || "{}"),
+    after = JSON.parse(entry.after_json || "{}");
+  return {
+    ...entry,
+    before_json: null,
+    after_json: null,
+    redacted: true,
+    changed_fields: [
+      ...new Set([...Object.keys(before), ...Object.keys(after)]),
+    ].filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k])),
+  };
+}
