@@ -1,3 +1,4 @@
+import { aggregateMetrics } from "./analytics.js";
 import { httpError } from "./security.js";
 import { reportPeriod, periodLabel, csvCell } from "../shared/report-period.js";
 import { writeAudit } from "./db.js";
@@ -21,10 +22,9 @@ export function reportingScope(user, requested = "mine") {
     return { sql: "1=1", params: [], label: "ภาพรวมสำนัก" };
   throw httpError(403, "ไม่มีสิทธิ์ดูสรุปในขอบเขตนี้");
 }
-function summarize(rows) {
-  const ready = rows.filter((r) => r.status === "ready");
-  const metrics = new Map(),
-    units = new Map(),
+function summarize(db, rows) {
+  const ready = rows.filter((r) => r.status === "ready" && !r.duplicate_of);
+  const units = new Map(),
     categories = new Map();
   for (const r of ready) {
     for (const [map, id, name] of [
@@ -35,21 +35,12 @@ function summarize(rows) {
       item.count++;
       map.set(id, item);
     }
-    for (const m of r.metrics) {
-      const key = JSON.stringify([m.label, m.unit]);
-      const item = metrics.get(key) || {
-        label: m.label,
-        unit: m.unit,
-        value: 0,
-      };
-      item.value += m.value;
-      metrics.set(key, item);
-    }
   }
   return {
     ready: ready.length,
-    pending: rows.length - ready.length,
-    metrics: [...metrics.values()],
+    pending: rows.filter((r) => r.status !== "ready" && !r.duplicate_of).length,
+    duplicates: rows.filter((r) => r.duplicate_of).length,
+    metrics: aggregateMetrics(db, ready),
     units: [...units.values()],
     categories: [...categories.values()],
   };
@@ -90,21 +81,21 @@ export function buildReport(db, req) {
   const read = ({ from, to }) =>
     db
       .prepare(
-        `SELECT a.id,a.title,a.date,a.status,a.area,a.workers,a.result,a.source,a.owner_id,a.unit_id,a.work_id,a.category_id,a.metrics,a.version,a.updated_at,a.source_text,u.name unit_name,w.name work_name,c.name category_name,o.name owner_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN works w ON w.id=a.work_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id WHERE ${filters.join(" AND ")} AND COALESCE(a.date,substr(a.created_at,1,10)) BETWEEN ? AND ? ORDER BY a.date DESC,a.id DESC`,
+        `SELECT a.id,a.title,a.date,a.status,a.duplicate_of,a.area,a.workers,a.result,a.source,a.owner_id,a.unit_id,a.work_id,a.category_id,a.metrics,a.version,a.updated_at,a.source_text,u.name unit_name,w.name work_name,c.name category_name,o.name owner_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN works w ON w.id=a.work_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id WHERE ${filters.join(" AND ")} AND COALESCE(a.date,substr(a.created_at,1,10)) BETWEEN ? AND ? ORDER BY a.date DESC,a.id DESC`,
       )
       .all(...args, from, to)
       .map((r) => ({ ...r, metrics: JSON.parse(r.metrics) }));
   const rows = read(range),
-    previous = summarize(read(range.previous));
+    previous = summarize(db, read(range.previous));
   return {
     range,
     title: periodLabel(req.query.period || "month", range.from),
     scope: scope.label,
     generated_at: new Date().toISOString(),
-    ...summarize(rows),
+    ...summarize(db, rows),
     previous,
     rows,
-    note: "นับเฉพาะรายงานที่ยืนยันแล้ว แยกชื่อผลและหน่วยนับ ผู้ส่งอาจไม่ใช่ผู้ปฏิบัติงาน ยอดคน/รายเป็นยอดที่รายงาน ไม่ใช่จำนวนบุคคลไม่ซ้ำ",
+    note: "นับเฉพาะรายงานที่ยืนยันแล้วและไม่ถูกระบุว่าซ้ำ แยกชื่อผลและหน่วยนับ ใช้วิธีรวมตามแม่แบบที่เปิดใช้ ผู้ส่งอาจไม่ใช่ผู้ปฏิบัติงาน ยอดคน/รายเป็นยอดที่รายงาน ไม่ใช่จำนวนบุคคลไม่ซ้ำ",
   };
 }
 export function registerReportRoutes(app, db) {
@@ -116,9 +107,15 @@ export function registerReportRoutes(app, db) {
       ["ตั้งแต่", d.range.from, "ถึง", d.range.to],
       ["หมายเหตุ", d.note],
       ["กิจกรรมที่ยืนยันแล้ว", d.ready],
-      ["รอยืนยัน (ไม่รวมยอด)", d.pending],
-      ["ผลการดำเนินงาน", "จำนวน", "หน่วย"],
-      ...d.metrics.map((m) => [m.label, m.value, m.unit]),
+      ["ตรวจข้อมูลที่อ่านได้ (ไม่รวมยอด)", d.pending],
+      ["ยืนยันแล้วว่าซ้ำ (ไม่รวมยอด)", d.duplicates],
+      ["ผลการดำเนินงาน", "จำนวน", "หน่วย", "วิธีสรุป"],
+      ...d.metrics.map((m) => [
+        m.label,
+        m.value,
+        m.unit,
+        m.method === "max" ? "ค่าสูงสุด" : "รวมค่า",
+      ]),
       [],
       [
         "รหัส",
@@ -143,7 +140,11 @@ export function registerReportRoutes(app, db) {
         r.owner_name,
         r.workers,
         r.result,
-        r.status === "ready" ? "ยืนยันแล้ว" : "รอยืนยัน — ไม่รวมยอด",
+        r.duplicate_of
+          ? "ซ้ำกับ #" + r.duplicate_of + " — ไม่รวมยอด"
+          : r.status === "ready"
+            ? "ยืนยันแล้ว"
+            : "ตรวจข้อมูลที่อ่านได้ — ไม่รวมยอด",
         r.source,
       ]),
     ];

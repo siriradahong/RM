@@ -157,6 +157,7 @@ try {
     .getByRole("heading", { name: "ฉบับรายงานที่ยืนยันแล้ว", exact: true })
     .waitFor();
   assert.equal(await s.locator("textarea").count(), 0);
+  assert.equal(await s.locator(".duplicate-review").count(), 0);
   const download = s.waitForEvent("download");
   await s.getByRole("link", { name: "ส่งออก Word", exact: true }).click();
   assert.match((await download).suggestedFilename(), /\.docx$/);

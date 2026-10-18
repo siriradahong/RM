@@ -1,7 +1,10 @@
+import DashboardView from "./dashboard";
+import ActivityCalendar from "./calendar";
+import DuplicateReview from "./duplicate-review";
 import TemplatesAdmin from "./templates";
 import LocalExtraction, { fillEmptyFromExtraction } from "./extraction";
 import ReadingStatus from "./reading-status";
-import ReportDrafts, { TemplateReadiness } from "./report-drafts";
+import ReportDrafts from "./report-drafts";
 import Reports from "./reports";
 import Projects from "./projects";
 import React, {
@@ -109,10 +112,6 @@ function AssignmentFields({ unitId, workId, historical = false }) {
 }
 const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
-const monthRange = () => {
-  const d = today();
-  return { from: d.slice(0, 7) + "-01", to: d };
-};
 const fmt = (v, time = false) =>
   v
     ? new Intl.DateTimeFormat("th-TH", {
@@ -152,7 +151,8 @@ function Badge({ status, children }) {
       {children ||
         {
           ready: "พร้อมสรุป",
-          pending: "รอยืนยันข้อมูล",
+          pending: "ตรวจข้อมูลที่อ่านได้",
+          duplicate: "ซ้ำ ไม่รวมยอด",
           draft: "ฉบับร่าง",
           published: "เผยแพร่แล้ว",
           sent: "LINE รับคำขอแล้ว",
@@ -435,27 +435,16 @@ function App() {
   );
   const menu = [
     ...(canReport ? [["dashboard", "แดชบอร์ด", LayoutDashboard]] : []),
+    ...(canWrite ? [["import", "เพิ่มข้อมูล", Plus]] : []),
     ["library", "คลังข้อมูล", FolderOpen],
     ...(canReport
       ? [
-          ["reports", "สรุปผลงาน", FileText],
-          ["projects", "โครงการและงานมอบหมาย", CalendarDays],
-        ]
-      : []),
-    ...(canWrite
-      ? [
-          ["import", "เพิ่มข้อมูล", Plus],
-          ["inbox", "รายงานจาก LINE", Inbox],
+          ["projects", "โครงการและงาน", CalendarDays],
+          ["reports", "รายงานสรุป", FileText],
         ]
       : []),
     ["feed", "ฟีดข่าวภายใน", Newspaper],
-    ...(isPr ? [["news", "จัดการข่าว", FileText]] : []),
-    ...(isAdmin
-      ? [
-          ["admin", "ดูแลระบบ", Settings],
-          ["audit", "ประวัติการแก้ไขข้อมูล", History],
-        ]
-      : []),
+    ...(isAdmin ? [["admin", "ดูแลระบบ", Settings]] : []),
   ];
   const current = path.split("/")[0],
     view = path.split("/")[1];
@@ -470,8 +459,17 @@ function App() {
     isAdmin,
   };
   let page;
-  if (current === "dashboard" || !current)
-    page = <Dashboard mode={view || "overview"} />;
+  if ((current === "dashboard" || !current) && canReport)
+    page = (
+      <DashboardView
+        key={view || "overview"}
+        mode={view || "overview"}
+        user={user}
+        meta={meta}
+        navigate={navigate}
+        canWrite={canWrite}
+      />
+    );
   else if (current === "reports" && canReport)
     page = <Reports user={user} meta={meta} navigate={navigate} />;
   else if (current === "drafts" && canReport)
@@ -542,7 +540,11 @@ function App() {
             <button
               key={p}
               className={
-                current === p || (p === "reports" && current === "drafts")
+                current === p ||
+                (p === "reports" && current === "drafts") ||
+                (p === "import" && current === "inbox") ||
+                (p === "feed" && current === "news") ||
+                (p === "admin" && current === "audit")
                   ? "active"
                   : ""
               }
@@ -589,8 +591,15 @@ function App() {
             พื้นที่การทำงาน <ChevronRight size={14} />{" "}
             <b>
               {current === "drafts"
-                ? "สรุปผลงาน"
-                : menu.find((x) => x[0] === current)?.[1] || "รายละเอียดข้อมูล"}
+                ? "รายงานสรุป"
+                : current === "inbox"
+                  ? "เพิ่มข้อมูล / รับจาก LINE"
+                  : current === "news"
+                    ? "ฟีดข่าวภายใน / จัดการข่าว"
+                    : current === "audit"
+                      ? "ดูแลระบบ / ประวัติการแก้ไข"
+                      : menu.find((x) => x[0] === current)?.[1] ||
+                        "รายละเอียดข้อมูล"}
             </b>
           </div>
           <button className="profile" onClick={() => setAccount(true)}>
@@ -885,303 +894,17 @@ function Filters({
     </div>
   );
 }
-function Dashboard({ mode }) {
-  const { user, meta, navigate, canWrite } = useApp();
-  const summaryScope =
-    mode === "mine"
-      ? user.roles.some((r) => ["staff", "head", "executive"].includes(r))
-        ? "mine"
-        : null
-      : user.roles.includes("executive")
-        ? "all"
-        : mode === "unit" && user.roles.includes("head")
-          ? "unit"
-          : null;
-  const [filters, setFilters] = useState({
-    ...monthRange(),
-    unit: mode === "unit" ? user.scopes[0] || user.unit_id || "" : "",
-    mine: mode === "mine" ? "1" : "",
-  });
-  useEffect(
-    () =>
-      setFilters({
-        ...monthRange(),
-        unit: mode === "unit" ? user.scopes[0] || user.unit_id || "" : "",
-        mine: mode === "mine" ? "1" : "",
-      }),
-    [mode],
-  );
-  const resource = useResource("/dashboard?" + query(filters));
-  const recent = useResource("/activities?" + query({ ...filters, limit: 5 }));
-  function drill(status = "") {
-    sessionStorage.setItem(
-      "rm-library-filter",
-      JSON.stringify({ ...filters, status }),
-    );
-    navigate("library");
-  }
-  return (
-    <>
-      <Header
-        title={
-          mode === "mine"
-            ? "ข้อมูลที่ฉันนำเข้า"
-            : mode === "unit"
-              ? "แดชบอร์ดหน่วยงาน"
-              : "ภาพรวมสำนัก"
-        }
-        description="ข้อมูลการปฏิบัติงานที่บันทึกแล้ว เพื่อการตรวจสอบและสรุปผลร่วมกัน"
-        action={
-          canWrite && (
-            <Button primary icon={Plus} onClick={() => navigate("import")}>
-              เพิ่มข้อมูล
-            </Button>
-          )
-        }
-      />
-      <Tabs
-        items={[
-          ["overview", "ภาพรวมสำนัก"],
-          ["unit", "ข้อมูลหน่วยงาน"],
-          ["mine", "ข้อมูลที่ฉันนำเข้า"],
-        ]}
-        value={mode}
-        onChange={(m) => navigate("dashboard/" + m)}
-      />
-      {user.roles.some((r) => ["staff", "head", "executive"].includes(r)) && (
-        <div className="report-actions">
-          <Button icon={FileText} onClick={() => navigate("reports")}>
-            สรุปรายเดือน / ไตรมาส / ปี
-          </Button>
-          <Button icon={CalendarDays} onClick={() => navigate("projects")}>
-            งานที่ได้รับมอบหมาย
-          </Button>
-        </div>
-      )}
-      <Filters
-        value={filters}
-        onChange={setFilters}
-        search={false}
-        scope={false}
-      />
-      {summaryScope &&
-        (summaryScope !== "unit" ||
-          !filters.unit ||
-          user.scopes.includes(Number(filters.unit))) && (
-          <TemplateReadiness
-            filters={{
-              scope: summaryScope,
-              period: "custom",
-              from: filters.from,
-              to: filters.to,
-              unit: String(filters.unit || ""),
-            }}
-            navigate={navigate}
-          />
-        )}
-      <Resource resource={resource}>
-        {(d) => (
-          <>
-            <div className="stats">
-              <button className="stat featured" onClick={() => drill("ready")}>
-                <div>
-                  <span>กิจกรรมที่พร้อมสรุป</span>
-                  <Activity size={23} />
-                </div>
-                <strong>
-                  {num(d.ready)}
-                  <small>กิจกรรม</small>
-                </strong>
-                <p>
-                  <CheckCircle2 size={14} />
-                  ตรวจข้อมูลพร้อมนำไปสรุปแล้ว
-                </p>
-              </button>
-              <button className="stat" onClick={() => drill("pending")}>
-                <div>
-                  <span>รายการรอยืนยันข้อมูล</span>
-                  <Clock size={23} />
-                </div>
-                <strong>
-                  {num(d.pending)}
-                  <small>รายการ</small>
-                </strong>
-                <p>ยังไม่รวมในยอดกิจกรรมที่พร้อมสรุป</p>
-              </button>
-              <button
-                className="stat"
-                onClick={() => {
-                  sessionStorage.setItem("rm-library-tab", "files");
-                  navigate("library");
-                }}
-              >
-                <div>
-                  <span>ไฟล์ที่ฝากเก็บ</span>
-                  <FolderOpen size={23} />
-                </div>
-                <strong>
-                  {num(d.archives)}
-                  <small>ไฟล์</small>
-                </strong>
-                <p>เอกสารอ้างอิง แยกจากจำนวนกิจกรรม</p>
-              </button>
-              <div className="stat">
-                <div>
-                  <span>หน่วยงานที่มีรายงาน</span>
-                  <Building2 size={23} />
-                </div>
-                <strong>
-                  {num(d.byUnit.length)}
-                  <small>หน่วยงาน</small>
-                </strong>
-                <p>ตามช่วงเวลาที่เลือก</p>
-              </div>
-            </div>
-            <div className="dashboard-charts">
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h2>กิจกรรมรายเดือน</h2>
-                    <p>จำนวนกิจกรรมที่พร้อมสรุป · หน่วย: กิจกรรม</p>
-                  </div>
-                  <Badge>ข้อมูลจริง</Badge>
-                </div>
-                {d.months.length ? (
-                  <div className="bar-chart">
-                    {d.months.map((m) => (
-                      <div className="bar-column" key={m.name}>
-                        <b>{m.count}</b>
-                        <div className="bar-track">
-                          <span
-                            style={{
-                              height: `${Math.max(3, (m.count / Math.max(...d.months.map((x) => x.count))) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                        <small>{fmt(m.name + "-01").replace(/^1 /, "")}</small>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Empty title="ยังไม่มีกิจกรรมพร้อมสรุป" />
-                )}
-              </section>
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h2>กิจกรรมแยกตามประเภทงาน</h2>
-                    <p>นับรายการงาน ไม่ใช่ข้อความหรือรูปภาพ</p>
-                  </div>
-                </div>
-                {d.byCategory.length ? (
-                  <div className="horizontal-chart">
-                    {d.byCategory.map((r, i) => (
-                      <div key={r.name}>
-                        <span>
-                          {r.name}
-                          <b>{num(r.count)}</b>
-                        </span>
-                        <div>
-                          <i
-                            style={{
-                              width: `${(r.count / d.ready) * 100}%`,
-                              background: [
-                                "#0285c7",
-                                "#146c64",
-                                "#d7ad52",
-                                "#6a7cb9",
-                              ][i % 4],
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Empty title="ยังไม่มีข้อมูลประเภทงาน" />
-                )}
-              </section>
-            </div>
-            <section className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>ผลการดำเนินงานแยกตามหน่วยนับ</h2>
-                  <p>
-                    รวมเฉพาะชื่อผลและหน่วยนับเดียวกัน โดยไม่จัดอันดับหน่วยงาน
-                  </p>
-                </div>
-              </div>
-              {d.metrics.length ? (
-                <div className="metric-grid">
-                  {d.metrics.map((m) => (
-                    <button
-                      key={m.label + m.unit}
-                      onClick={() => drill("ready")}
-                    >
-                      <span>{m.label}</span>
-                      <strong>
-                        {num(m.value)} <small>{m.unit}</small>
-                      </strong>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="subtle-empty">
-                  ยังไม่มีผลการดำเนินงานที่พร้อมสรุป
-                </div>
-              )}
-            </section>
-            <p className="updated">
-              <Clock size={14} />
-              อัปเดตข้อมูลล่าสุด:{" "}
-              {d.updatedAt ? fmt(d.updatedAt, true) : "ยังไม่มีข้อมูล"}
-            </p>
-          </>
-        )}
-      </Resource>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <h2>รายการงานล่าสุด</h2>
-            <p>เปิดรายการเพื่อตรวจสอบหลักฐานต้นทาง</p>
-          </div>
-          <Button onClick={() => drill()} icon={ArrowRight}>
-            ดูทั้งหมด
-          </Button>
-        </div>
-        <Resource resource={recent}>
-          {(d) => <WorkTable rows={d.items} />}
-        </Resource>
-      </section>
-      <details className="workflow-guide">
-        <summary>ข้อมูลไปเป็นสรุปผลงานได้อย่างไร</summary>
-        <ol>
-          <li>
-            เจ้าหน้าที่ส่งข้อความและไฟล์ผ่านเว็บ หรือรับจาก LINE ที่ตั้งค่าแล้ว
-          </li>
-          <li>ตรวจข้อมูลจากต้นฉบับ แก้เฉพาะจุด แล้วกดยืนยันข้อมูลเพื่อสรุป</li>
-          <li>ระบบรวมรายงานที่ยืนยันตามฝ่าย งาน วันที่ และหน่วยนับ</li>
-          <li>เปิดสรุปรายเดือน/ไตรมาส/ปี แล้วส่งออกหรือเปิดดูหลักฐานต้นทาง</li>
-        </ol>
-        <p>
-          AI/OCR ยังไม่เชื่อมต่อ
-          จึงต้องตรวจและเติมข้อมูลจากต้นฉบับเองในขั้นยืนยัน
-        </p>
-      </details>
-      <Notice>
-        ไฟล์ฝากเก็บและรายการรอตรวจไม่รวมในยอดกิจกรรม
-        ผู้รายงานหรือผู้นำเข้าอาจรายงานแทนผู้ปฏิบัติงานหลายคนได้
-      </Notice>
-    </>
-  );
-}
 function WorkTable({ rows }) {
-  const { navigate } = useApp();
+  const { navigate, canWrite } = useApp();
   if (!rows.length)
     return (
       <Empty
         title="ไม่พบรายการงาน"
-        children="ลองเปลี่ยนตัวกรอง หรือนำเข้าข้อมูลเพื่อสร้างรายการงาน"
+        children={
+          canWrite
+            ? "ลองเปลี่ยนตัวกรอง หรือเพิ่มข้อมูลรายงาน"
+            : "ลองเปลี่ยนตัวกรองเพื่อดูรายงานที่บันทึกไว้"
+        }
       />
     );
   return (
@@ -1231,7 +954,7 @@ function WorkTable({ rows }) {
                 </Badge>
               </td>
               <td>
-                <Badge status={r.status} />
+                <Badge status={r.duplicate_of ? "duplicate" : r.status} />
               </td>
               <td>
                 <button
@@ -1266,7 +989,9 @@ function Library() {
     }
   });
   const [preview, setPreview] = useState(null);
-  const resource = useResource("/" + tab + "?" + query(filters));
+  const resource = useResource(
+    "/" + (tab === "files" ? "files" : "activities") + "?" + query(filters),
+  );
   return (
     <>
       <Header
@@ -1284,6 +1009,7 @@ function Library() {
         items={[
           ["activities", "รายการงาน"],
           ["files", "ไฟล์และเอกสาร"],
+          ["calendar", "ปฏิทินกิจกรรม"],
         ]}
         value={tab}
         onChange={(t) => {
@@ -1294,7 +1020,7 @@ function Library() {
       <Filters
         value={filters}
         onChange={setFilters}
-        dates={tab === "activities"}
+        dates={tab !== "calendar"}
       />
       {tab === "activities" && (
         <div className="filters compact">
@@ -1321,7 +1047,8 @@ function Library() {
           >
             <option value="">ทุกสถานะ</option>
             <option value="ready">พร้อมสรุป</option>
-            <option value="pending">รอยืนยันข้อมูล</option>
+            <option value="pending">ตรวจข้อมูลที่อ่านได้</option>
+            <option value="duplicate">ซ้ำ ไม่รวมยอด</option>
           </select>
           <select
             aria-label="แหล่งที่มา"
@@ -1337,83 +1064,87 @@ function Library() {
           <Button onClick={() => setFilters({ page: 1 })}>ล้างตัวกรอง</Button>
         </div>
       )}
-      <section className="panel">
-        <Resource resource={resource}>
-          {(d) => (
-            <>
-              {tab === "activities" ? (
-                <WorkTable rows={d.items} />
-              ) : d.items.length ? (
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>ชื่อไฟล์ / ขนาด</th>
-                        <th>หน่วยงาน</th>
-                        <th>ผู้นำเข้า</th>
-                        <th>วัตถุประสงค์</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {d.items.map((f) => (
-                        <tr key={f.id}>
-                          <td>
-                            <button
-                              className="table-link file-link"
-                              onClick={() => setPreview(f)}
-                            >
-                              <FileText size={20} />
-                              {f.title}
-                            </button>
-                            <small>
-                              {bytes(f.size)} · {fmt(f.created_at)}
-                            </small>
-                          </td>
-                          <td>{f.unit_name}</td>
-                          <td>{f.owner_name}</td>
-                          <td>
-                            <Badge>
-                              {f.purpose === "archive"
-                                ? "ฝากเก็บเพื่ออ้างอิง"
-                                : "หลักฐานกิจกรรม"}
-                            </Badge>
-                            {f.activity_id && (
-                              <button
-                                className="text-link"
-                                onClick={() =>
-                                  navigate("activity/" + f.activity_id)
-                                }
-                              >
-                                เปิดรายการงาน
-                              </button>
-                            )}
-                          </td>
-                          <td>
-                            <a
-                              className="icon-button"
-                              href={fileUrl(f.id, true)}
-                              aria-label="ดาวน์โหลด"
-                            >
-                              <Download size={19} />
-                            </a>
-                          </td>
+      {tab === "calendar" ? (
+        <ActivityCalendar filters={filters} navigate={navigate} />
+      ) : (
+        <section className="panel">
+          <Resource resource={resource}>
+            {(d) => (
+              <>
+                {tab === "activities" ? (
+                  <WorkTable rows={d.items} />
+                ) : d.items.length ? (
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ชื่อไฟล์ / ขนาด</th>
+                          <th>หน่วยงาน</th>
+                          <th>ผู้นำเข้า</th>
+                          <th>วัตถุประสงค์</th>
+                          <th />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <Empty title="ไม่พบไฟล์และเอกสาร" />
-              )}
-              <Pager
-                data={d}
-                onPage={(page) => setFilters({ ...filters, page })}
-              />
-            </>
-          )}
-        </Resource>
-      </section>
+                      </thead>
+                      <tbody>
+                        {d.items.map((f) => (
+                          <tr key={f.id}>
+                            <td>
+                              <button
+                                className="table-link file-link"
+                                onClick={() => setPreview(f)}
+                              >
+                                <FileText size={20} />
+                                {f.title}
+                              </button>
+                              <small>
+                                {bytes(f.size)} · {fmt(f.created_at)}
+                              </small>
+                            </td>
+                            <td>{f.unit_name}</td>
+                            <td>{f.owner_name}</td>
+                            <td>
+                              <Badge>
+                                {f.purpose === "archive"
+                                  ? "ฝากเก็บเพื่ออ้างอิง"
+                                  : "หลักฐานกิจกรรม"}
+                              </Badge>
+                              {f.activity_id && (
+                                <button
+                                  className="text-link"
+                                  onClick={() =>
+                                    navigate("activity/" + f.activity_id)
+                                  }
+                                >
+                                  เปิดรายการงาน
+                                </button>
+                              )}
+                            </td>
+                            <td>
+                              <a
+                                className="icon-button"
+                                href={fileUrl(f.id, true)}
+                                aria-label="ดาวน์โหลด"
+                              >
+                                <Download size={19} />
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <Empty title="ไม่พบไฟล์และเอกสาร" />
+                )}
+                <Pager
+                  data={d}
+                  onPage={(page) => setFilters({ ...filters, page })}
+                />
+              </>
+            )}
+          </Resource>
+        </section>
+      )}
       {preview && (
         <FilePreview file={preview} onClose={() => setPreview(null)} />
       )}
@@ -1587,12 +1318,13 @@ function ImportPage() {
         title="เพิ่มข้อมูล"
         description="ส่งรายงานเหมือนใน LINE พิมพ์ข้อความ แนบไฟล์ หรือส่งทั้งสองอย่างพร้อมกัน"
       />
+      <IntakeTabs active="web" />
       <section className="panel import-panel">
         <form className="form" onSubmit={submit}>
           <fieldset disabled={busy || needsAssignment || !unit}>
             <Field label="ข้อความรายงาน">
               <textarea
-                rows={8}
+                rows={6}
                 maxLength={20000}
                 value={text}
                 disabled={uploaded.current.size > 0}
@@ -1650,16 +1382,19 @@ function ImportPage() {
               />{" "}
               เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน
             </label>
-            <Notice>
-              {archive
-                ? "เก็บข้อความและไฟล์ไว้ค้นหา ส่งข้อความอย่างเดียวได้ ไม่สร้างรายงานและไม่รวมในสรุปผลงาน"
-                : "อ่านข้อความและ PDF/Excel ในเครื่อง แล้วให้คุณตรวจข้อมูลก่อนยืนยัน รูปถ่ายแนบเป็นหลักฐานโดยอัตโนมัติ"}
-            </Notice>
-            <p className="muted">
-              ผู้ส่ง: {user.name} · ฝ่ายรับเรื่อง:{" "}
-              {meta.units.find((u) => u.id === unit)?.name || "ยังไม่ระบุ"} —
-              ต้องตรวจฝ่ายเจ้าของรายงานและผู้ปฏิบัติงานจากต้นฉบับอีกครั้ง
-            </p>
+            <details className="intake-details">
+              <summary>รายละเอียดการบันทึก · {user.name}</summary>
+              <p className="muted">
+                ฝ่ายรับเรื่อง:{" "}
+                {meta.units.find((u) => u.id === unit)?.name || "ยังไม่ระบุ"} ·
+                ตรวจฝ่ายเจ้าของรายงานจากต้นฉบับอีกครั้ง
+              </p>
+              <p>
+                {archive
+                  ? "เก็บข้อความและไฟล์ไว้ค้นหา ไม่เพิ่มยอดผลงาน"
+                  : "เก็บต้นฉบับก่อน แล้วเปิดข้อมูลที่อ่านได้ให้ตรวจยืนยัน รูปที่ส่งพร้อมกันแนบกับรายงานให้อัตโนมัติ"}
+              </p>
+            </details>
             {error && <Notice error>{error}</Notice>}
             <Button
               primary
@@ -1691,7 +1426,7 @@ function ImportPage() {
 
 const blankActivity = (user, extra = {}) => ({
   title: "",
-  date: today(),
+  date: "",
   unit_id: user.unit_id || user.scopes[0] || "",
   category_id: "",
   work_id: user.work_id || "",
@@ -1907,10 +1642,16 @@ function ActivityEditor({ id }) {
         }
       />
       <div className="detail-status">
-        <Badge status={record?.status || form.status}>
-          {(record?.status || form.status) === "ready"
-            ? "เสร็จแล้ว · พร้อมสรุป"
-            : "รอยืนยันข้อมูล"}
+        <Badge
+          status={
+            record?.duplicate_of ? "duplicate" : record?.status || form.status
+          }
+        >
+          {record?.duplicate_of
+            ? "รายการซ้ำ · ไม่รวมยอด"
+            : (record?.status || form.status) === "ready"
+              ? "เสร็จแล้ว · พร้อมสรุป"
+              : "ตรวจข้อมูลที่อ่านได้"}
         </Badge>
         <span>
           {editable ? "แก้ไขได้ตามสิทธิ์" : "อ่านอย่างเดียว"} · ผู้ส่ง:{" "}
@@ -1924,8 +1665,31 @@ function ActivityEditor({ id }) {
         </Notice>
       )}
       {record && (
+        <DuplicateReview
+          key={"duplicate:" + record.id + ":" + record.version}
+          record={record}
+          navigate={navigate}
+          onChanged={async () => {
+            const updated = await api("/activities/" + id);
+            setRecord(updated);
+            setForm((f) => ({
+              ...f,
+              duplicate_of: updated.duplicate_of,
+              duplicate_reason: updated.duplicate_reason,
+              version: updated.version,
+            }));
+            setEvidence(updated.files);
+            notify(
+              updated.duplicate_of
+                ? "ยืนยันรายการซ้ำแล้ว ไม่รวมยอด"
+                : "ยกเลิกการระบุว่าซ้ำแล้ว",
+            );
+          }}
+        />
+      )}
+      {record && (record.status === "pending" || record.extraction) && (
         <LocalExtraction
-          key={record.id + ":" + record.version}
+          key={"extraction:" + record.id + ":" + record.version}
           record={record}
           onApply={(e) => setForm((f) => fillEmptyFromExtraction(f, e))}
         />
@@ -2379,13 +2143,15 @@ function SourceExcerpt({ text }) {
   return (
     <div className="source-excerpt">
       <p className={expanded ? "" : "clamped"}>{text}</p>
-      <button
-        type="button"
-        className="text-link"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {expanded ? "ย่อข้อความ" : "อ่านทั้งหมด"}
-      </button>
+      {(text.length > 200 || text.split("\n").length > 4) && (
+        <button
+          type="button"
+          className="text-link"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? "ย่อข้อความ" : "อ่านทั้งหมด"}
+        </button>
+      )}
     </div>
   );
 }
@@ -2610,6 +2376,50 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
   );
 }
 
+function IntakeTabs({ active }) {
+  const { navigate } = useApp();
+  return (
+    <div
+      className="section-tabs"
+      role="navigation"
+      aria-label="ช่องทางเพิ่มข้อมูล"
+    >
+      <button
+        className={active === "web" ? "active" : ""}
+        onClick={() => navigate("import")}
+      >
+        ข้อความและไฟล์
+      </button>
+      <button
+        className={active === "line" ? "active" : ""}
+        onClick={() => navigate("inbox")}
+      >
+        รับจาก LINE
+      </button>
+    </div>
+  );
+}
+function NewsTabs({ active }) {
+  const { navigate, isPr } = useApp();
+  return (
+    isPr && (
+      <div className="section-tabs" role="navigation" aria-label="ข่าวภายใน">
+        <button
+          className={active === "feed" ? "active" : ""}
+          onClick={() => navigate("feed")}
+        >
+          ข่าวที่เผยแพร่
+        </button>
+        <button
+          className={active === "manage" ? "active" : ""}
+          onClick={() => navigate("news")}
+        >
+          จัดการข่าว
+        </button>
+      </div>
+    )
+  );
+}
 function LineInbox() {
   const { meta, navigate, notify } = useApp();
   const [page, setPage] = useState(1),
@@ -2638,10 +2448,11 @@ function LineInbox() {
           </Button>
         }
       />
+      <IntakeTabs active="line" />
       {!meta.line.receiveConfigured && (
         <Notice>
-          ยังไม่ได้ตั้งค่า LINE webhook
-          ระบบจะแสดงรายงานที่ได้รับจริงหลังผู้ดูแลเชื่อมต่อช่องทางแล้ว
+          ยังไม่ได้เชื่อมต่อกลุ่มรับรายงาน ให้ผู้ดูแลตั้งค่าก่อนรับข้อมูลจาก
+          LINE
         </Notice>
       )}
       {meta.demo?.simulatedInboxCount > 0 && (
@@ -2731,6 +2542,7 @@ function Feed() {
         title="ฟีดข่าวภายใน"
         description="ข่าวสารและผลการปฏิบัติงานที่ผ่านการยืนยันจากเจ้าหน้าที่ประชาสัมพันธ์"
       />
+      <NewsTabs active="feed" />
       <Filters
         value={filters}
         onChange={setFilters}
@@ -2838,6 +2650,7 @@ function NewsManager() {
         title="จัดการข่าวประชาสัมพันธ์"
         description="เลือกข้อมูลจากรายงานจริง จัดทำข่าว และยืนยันก่อนเผยแพร่"
       />
+      <NewsTabs active="manage" />
       <Tabs
         items={[
           ["source", "เลือกรายงานต้นทาง"],
@@ -3195,7 +3008,12 @@ function Admin({ tab: requestedTab }) {
     <>
       <Header
         title="ดูแลระบบ"
-        description="จัดการบัญชี บทบาท ขอบเขตหน่วยงาน และการเชื่อมต่อข้อมูล"
+        description="จัดการผู้ใช้ หน่วยงาน รูปแบบรายงาน และการเชื่อมต่อ"
+        action={
+          <Button icon={History} onClick={() => navigate("audit")}>
+            ประวัติการแก้ไขข้อมูล
+          </Button>
+        }
       />
       <Tabs
         items={[
@@ -3992,7 +3810,8 @@ function AuditChanges({ entry }) {
     if (key === "status")
       return (
         {
-          pending: "รอยืนยันข้อมูล",
+          pending: "ตรวจข้อมูลที่อ่านได้",
+          duplicate: "ซ้ำ ไม่รวมยอด",
           ready: "พร้อมสรุป",
           draft: "ฉบับร่าง",
           published: "เผยแพร่แล้ว",

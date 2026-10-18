@@ -79,7 +79,7 @@ export function registerProjectRoutes(app, db) {
     const sources = sourceIds.length
       ? db
           .prepare(
-            `SELECT id,title,status,result,metrics FROM activities WHERE status='ready' AND id IN (${sourceIds.map(() => "?").join(",")})`,
+            `SELECT id,title,status,result,metrics FROM activities WHERE status='ready' AND duplicate_of IS NULL AND id IN (${sourceIds.map(() => "?").join(",")})`,
           )
           .all(...sourceIds)
       : [];
@@ -301,7 +301,7 @@ export function registerProjectRoutes(app, db) {
           t.status !== "submitted" ||
           !db
             .prepare(
-              "SELECT id FROM activities WHERE id=? AND status='ready' AND owner_id=? AND unit_id=?",
+              "SELECT id FROM activities WHERE id=? AND status='ready' AND duplicate_of IS NULL AND owner_id=? AND unit_id=?",
             )
             .get(t.activity_id, t.assignee_id, p.unit_id)
         )
@@ -320,7 +320,7 @@ export function registerProjectRoutes(app, db) {
       if (input.action === "submit") {
         const a = db
           .prepare(
-            "SELECT id FROM activities WHERE id=? AND owner_id=? AND unit_id=? AND status='ready'",
+            "SELECT id FROM activities WHERE id=? AND owner_id=? AND unit_id=? AND status='ready' AND duplicate_of IS NULL",
           )
           .get(input.activity_id || null, req.user.id, p.unit_id);
         if (!a)

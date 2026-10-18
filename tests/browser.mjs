@@ -99,7 +99,7 @@ try {
   await page
     .getByRole("heading", { name: "ภาพรวมสำนัก", exact: true })
     .waitFor();
-  await page.getByText("ยังไม่มีกิจกรรมพร้อมสรุป", { exact: true }).waitFor();
+  await page.getByText("ยังไม่มีรายงานในช่วงนี้", { exact: true }).waitFor();
   await page.screenshot({
     path: "test-results/dashboard-empty-desktop.png",
     fullPage: true,
@@ -319,6 +319,7 @@ try {
     path: "test-results/dashboard-desktop.png",
     fullPage: true,
   });
+  await page.getByRole("button", { name: "ฟีดข่าวภายใน", exact: true }).click();
   await page.getByRole("button", { name: "จัดการข่าว", exact: true }).click();
   await page.getByRole("button", { name: "จัดทำข่าว", exact: true }).click();
   await page

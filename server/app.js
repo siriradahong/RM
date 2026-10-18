@@ -1,3 +1,4 @@
+import { registerInsightRoutes } from "./insight-routes.js";
 import { registerDraftRoutes } from "./draft-routes.js";
 import { registerExtractionRoutes } from "./extraction-routes.js";
 import { registerReportRoutes } from "./report-routes.js";
@@ -237,6 +238,7 @@ export function createApp(options = {}) {
   registerReportRoutes(app, db);
   registerProjectRoutes(app, db);
   registerDataRoutes(app, db, dataDir);
+  registerInsightRoutes(app, db);
   registerAdminRoutes(app, db);
   registerNewsRoutes(app, db);
   app.use("/api", (req, res) =>

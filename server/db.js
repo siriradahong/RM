@@ -169,6 +169,18 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
     `),
     );
   }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=10").get()
+  ) {
+    transaction(db, () =>
+      db.exec(`
+      ALTER TABLE activities ADD COLUMN duplicate_of INTEGER REFERENCES activities(id);
+      ALTER TABLE activities ADD COLUMN duplicate_reason TEXT NOT NULL DEFAULT '';
+      CREATE INDEX activities_duplicate ON activities(duplicate_of);
+      INSERT INTO schema_migrations(version) VALUES(10);
+    `),
+    );
+  }
   return { db, dataDir };
 }
 export function transaction(db, fn) {

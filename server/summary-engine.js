@@ -69,7 +69,7 @@ export function calculate(rows, template) {
 export function inspectRows(rows, templates) {
   const groups = new Map();
   for (const r of rows) {
-    if (!r.date) continue;
+    if (!r.date || r.duplicate_of) continue;
     const key = JSON.stringify([
       r.unit_id,
       r.date,
@@ -80,6 +80,8 @@ export function inspectRows(rows, templates) {
   return rows.map((r) => {
     const t = matchTemplate(templates, r),
       missing = [];
+    if (r.duplicate_of)
+      missing.push("ยืนยันแล้วว่าซ้ำกับรายงาน #" + r.duplicate_of);
     if (!t) missing.push("แม่แบบสรุปผลสำหรับฝ่ายและประเภทงานนี้");
     if (t) {
       for (const f of t.config.required_fields)
@@ -103,7 +105,7 @@ export function inspectRows(rows, templates) {
       template_name: t?.name || null,
       missing,
       duplicate_ids: duplicates,
-      eligible: r.status === "ready" && missing.length === 0,
+      eligible: r.status === "ready" && !r.duplicate_of && missing.length === 0,
       auto_include:
         r.status === "ready" && missing.length === 0 && duplicates.length === 0,
     };

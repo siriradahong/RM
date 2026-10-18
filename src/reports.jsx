@@ -50,7 +50,7 @@ export default function Reports({ user, meta, navigate }) {
     <div className="report-page">
       <ReportTabs page="reports" navigate={navigate} />
       <Heading
-        title="สรุปผลงาน"
+        title="รายงานสรุป"
         actions={
           <div className="report-actions no-print">
             <Button
@@ -179,12 +179,18 @@ export default function Reports({ user, meta, navigate }) {
           </select>
         </Field>
       </section>
-      <TemplateReadiness filters={filters} navigate={navigate} />
+      <details className="panel readiness-details no-print">
+        <summary>ตรวจความพร้อมตามรูปแบบรายงาน</summary>
+        <TemplateReadiness filters={filters} navigate={navigate} />
+      </details>
       <DataState resource={resource}>
         {(d) => {
           const rows = d.rows.filter(
             (r) =>
-              (!status || r.status === status) &&
+              (!status ||
+                (status === "duplicate"
+                  ? r.duplicate_of
+                  : r.status === status && !r.duplicate_of)) &&
               (!selectedCategory ||
                 r.category_id === Number(selectedCategory)) &&
               (!selectedUnit || r.unit_id === Number(selectedUnit)),
@@ -210,7 +216,7 @@ export default function Reports({ user, meta, navigate }) {
                   </button>
                   <button onClick={() => setStatus("pending")}>
                     <strong>{d.pending}</strong>
-                    <span>รอยืนยัน · ไม่รวมยอด</span>
+                    <span>ตรวจข้อมูลที่อ่านได้ · ไม่รวมยอด</span>
                   </button>
                   <div>
                     <strong>
@@ -225,7 +231,11 @@ export default function Reports({ user, meta, navigate }) {
                   {dateText(d.range.previous.to)} · เปรียบเทียบจำนวนกิจกรรม
                   ไม่ใช่คะแนนประเมิน
                 </p>
-                <p>{d.note}</p>
+                <details>
+                  <summary>วิธีนับและข้อมูลที่ไม่รวมยอด</summary>
+                  <p>{d.note}</p>
+                  <p>ยืนยันแล้วว่าซ้ำ {d.duplicates} รายการ ไม่รวมในยอด</p>
+                </details>
               </section>
               <section className="panel report-metrics">
                 <h2>ผลการดำเนินงานแยกตามหน่วยนับ</h2>
@@ -238,22 +248,29 @@ export default function Reports({ user, meta, navigate }) {
                           <th>รอบนี้</th>
                           <th>รอบก่อน</th>
                           <th>หน่วย</th>
+                          <th>วิธีสรุป</th>
                         </tr>
                       </thead>
                       <tbody>
                         {d.metrics.map((m) => (
-                          <tr key={m.label + m.unit}>
+                          <tr key={m.label + m.unit + m.method}>
                             <td>{m.label}</td>
                             <td>{m.value.toLocaleString("th-TH")}</td>
                             <td>
-                              {(
-                                d.previous.metrics.find(
+                              {d.previous.metrics
+                                .find(
                                   (p) =>
-                                    p.label === m.label && p.unit === m.unit,
-                                )?.value || 0
-                              ).toLocaleString("th-TH")}
+                                    p.label === m.label &&
+                                    p.unit === m.unit &&
+                                    p.method === m.method,
+                                )
+                                ?.value?.toLocaleString("th-TH") ??
+                                "ไม่มีข้อมูล"}
                             </td>
                             <td>{m.unit}</td>
+                            <td>
+                              {m.method === "max" ? "ค่าสูงสุด" : "รวมค่า"}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -329,7 +346,8 @@ export default function Reports({ user, meta, navigate }) {
                     >
                       <option value="">ทั้งหมด</option>
                       <option value="ready">ยืนยันแล้ว</option>
-                      <option value="pending">รอยืนยัน</option>
+                      <option value="pending">ตรวจข้อมูลที่อ่านได้</option>
+                      <option value="duplicate">ซ้ำ ไม่รวมยอด</option>
                     </select>
                   </label>
                 </div>
@@ -371,9 +389,11 @@ export default function Reports({ user, meta, navigate }) {
                           <td>
                             {r.result || "ยังไม่ระบุ"}
                             <small>
-                              {r.status === "ready"
-                                ? "ยืนยันแล้ว"
-                                : "รอยืนยัน — ไม่รวมยอด"}
+                              {r.duplicate_of
+                                ? "ซ้ำ ไม่รวมยอด"
+                                : r.status === "ready"
+                                  ? "ยืนยันแล้ว"
+                                  : "ตรวจข้อมูลที่อ่านได้ — ไม่รวมยอด"}
                             </small>
                           </td>
                         </tr>

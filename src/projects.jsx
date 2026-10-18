@@ -52,7 +52,7 @@ export default function Projects({ user, meta, navigate, notify }) {
   return (
     <>
       <Heading
-        title="โครงการและงานมอบหมาย"
+        title="โครงการและงาน"
         actions={
           user.roles.includes("head") && (
             <Button primary onClick={() => setShow(!show)}>
@@ -63,10 +63,13 @@ export default function Projects({ user, meta, navigate, notify }) {
       >
         มอบหมายงาน → ส่งรายงานหลักฐาน → หัวหน้าตรวจรับ → ปิดโครงการ
       </Heading>
-      <p className="notice">
-        แสดงงานใกล้ครบกำหนดและเลยกำหนดจากข้อมูลจริงบนเว็บ ·
-        ยังไม่ส่งข้อความเตือนอัตโนมัติไป LINE
-      </p>
+      <details className="workflow-guide">
+        <summary>การติดตามงานและการแจ้งเตือน</summary>
+        <p>
+          แสดงงานใกล้ครบกำหนดและเลยกำหนดในเว็บ การแจ้งเตือนไป LINE
+          ยังไม่ได้เปิดใช้
+        </p>
+      </details>
       {show && (
         <form className="panel project-form" onSubmit={create}>
           <h2>สร้างโครงการ</h2>
@@ -203,7 +206,12 @@ function ProjectCard({ project: p, user, navigate, notify, reload }) {
           {labels[p.status]}
         </span>
       </div>
-      {p.description && <p className="source-text">{p.description}</p>}
+      {p.description && (
+        <details>
+          <summary>รายละเอียดโครงการ</summary>
+          <p className="source-text">{p.description}</p>
+        </details>
+      )}
       <ProjectPerformance project={p} navigate={navigate} reload={reload} />
       <div className="project-stages">
         {["planning", "active", "awaiting", "completed"].map((s) => (

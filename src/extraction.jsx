@@ -50,7 +50,7 @@ export default function LocalExtraction({ record, onApply }) {
               ? "อ่านต้นฉบับแล้ว · กรุณาตรวจข้อมูลก่อนยืนยัน"
               : "ช่วยอ่านและจัดข้อมูลจากต้นฉบับ"}
           </strong>
-          <p>ประมวลผลในเครื่อง ไม่ส่งเอกสารไปบริการ AI</p>
+          <p>ตรวจเทียบกับต้นฉบับ แล้วแก้เฉพาะข้อมูลที่ต้องการ</p>
         </div>
         {record.can_edit && record.status === "pending" && (
           <Button type="button" disabled={busy} onClick={read}>
@@ -111,7 +111,7 @@ export default function LocalExtraction({ record, onApply }) {
             <details key={i}>
               <summary>
                 {p.title} · {p.page} ·{" "}
-                {p.method === "ocr" ? "OCR" : "อ่านข้อความ"}
+                {p.method === "ocr" ? "อ่านจากภาพเอกสาร" : "อ่านข้อความ"}
               </summary>
               <pre className="read-text">{p.text}</pre>
             </details>

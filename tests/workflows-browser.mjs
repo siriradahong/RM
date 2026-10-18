@@ -76,9 +76,7 @@ try {
       .waitFor();
   }
   await login(p, "head");
-  await p
-    .getByRole("button", { name: "โครงการและงานมอบหมาย", exact: true })
-    .click();
+  await p.getByRole("button", { name: "โครงการและงาน", exact: true }).click();
   await p.getByRole("button", { name: "สร้างโครงการ", exact: true }).click();
   await p
     .getByLabel("ชื่อโครงการ", { exact: true })
@@ -146,7 +144,7 @@ try {
   await p
     .getByLabel("สถานะโครงการ ติดตามสุขภาพชุมชน เดือนตุลาคม")
     .selectOption("completed");
-  await p.getByRole("button", { name: "สรุปผลงาน", exact: true }).click();
+  await p.getByRole("button", { name: "รายงานสรุป", exact: true }).click();
   await p.getByLabel("วันที่ในรอบรายงาน").fill("2026-10-17");
   await p.getByRole("heading", { name: "ตุลาคม 2569", exact: true }).waitFor();
   await p.getByText("29", { exact: true }).waitFor();

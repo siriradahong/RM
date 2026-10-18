@@ -1,3 +1,5 @@
+import { aggregateMetrics } from "./analytics.js";
+import { reportPeriod } from "../shared/report-period.js";
 import multer from "multer";
 import { randomUUID } from "node:crypto";
 import { writeFile, unlink, copyFile } from "node:fs/promises";
@@ -73,15 +75,30 @@ function whereFor(req, alias = "a") {
       `COALESCE(${alias}.date,substr(${alias}.created_at,1,10))<=?`,
       req.query.to,
     );
-  if (req.query.status) add(`${alias}.status=?`, req.query.status);
+  if (req.query.status === "duplicate")
+    clauses.push(`${alias}.duplicate_of IS NOT NULL`);
+  else if (req.query.status) {
+    add(`${alias}.status=?`, req.query.status);
+    clauses.push(`${alias}.duplicate_of IS NULL`);
+  }
+  if (req.query.ids) {
+    const ids = String(req.query.ids).split(",").map(Number);
+    if (
+      ids.length > 1000 ||
+      ids.some((id) => !Number.isSafeInteger(id) || id <= 0)
+    )
+      throw httpError(400, "ตัวกรองรายการไม่ถูกต้อง");
+    clauses.push(`${alias}.id IN (${ids.map(() => "?").join(",")})`);
+    params.push(...ids);
+  }
   if (req.query.category)
     add(`${alias}.category_id=?`, Number(req.query.category));
   if (req.query.source) add(`${alias}.source=?`, req.query.source);
   if (req.query.q) {
     clauses.push(
-      `(${alias}.title LIKE ? OR ${alias}.area LIKE ? OR ${alias}.result LIKE ?)`,
+      `(${alias}.title LIKE ? OR ${alias}.area LIKE ? OR ${alias}.result LIKE ? OR ${alias}.workers LIKE ? OR ${alias}.source_text LIKE ? OR EXISTS (SELECT 1 FROM activity_extractions ex WHERE ex.activity_id=${alias}.id AND ex.result_json LIKE ?))`,
     );
-    params.push(...Array(3).fill(`%${String(req.query.q).slice(0, 200)}%`));
+    params.push(...Array(6).fill(`%${String(req.query.q).slice(0, 200)}%`));
   }
   return {
     where: clauses.length ? " WHERE " + clauses.join(" AND ") : "",
@@ -108,6 +125,30 @@ export function registerDataRoutes(app, db, dataDir) {
   app.get("/api/activities", (req, res) => {
     const { where, params } = whereFor(req),
       { page, limit } = pagination(req);
+    if (req.query.metric_label) {
+      const method = req.query.metric_method || "sum";
+      if (!["sum", "max"].includes(method) || !req.query.metric_unit)
+        throw httpError(400, "ตัวกรองผลการดำเนินงานไม่ถูกต้อง");
+      const rows = db
+        .prepare(`${selectActivity}${where} ORDER BY a.date DESC,a.id DESC`)
+        .all(...params);
+      const metric = aggregateMetrics(db, rows).find(
+        (m) =>
+          m.label === req.query.metric_label &&
+          m.unit === req.query.metric_unit &&
+          m.method === method,
+      );
+      const ids = new Set(metric?.source_ids || []),
+        selected = rows.filter((r) => ids.has(r.id));
+      return res.json({
+        items: selected
+          .slice((page - 1) * limit, page * limit)
+          .map((r) => activity(db, r, req.user)),
+        total: selected.length,
+        page,
+        limit,
+      });
+    }
     const total = db
       .prepare(`SELECT COUNT(*) AS count FROM activities a${where}`)
       .get(...params).count;
@@ -455,12 +496,22 @@ export function registerDataRoutes(app, db, dataDir) {
     }
   });
   app.get("/api/dashboard", (req, res) => {
-    const { where, params } = whereFor(req);
+    let effective = req;
+    if (req.query.period) {
+      try {
+        effective = {
+          user: req.user,
+          query: { ...req.query, ...reportPeriod(req.query) },
+        };
+      } catch (e) {
+        throw httpError(400, e.message);
+      }
+    }
+    const { where, params } = whereFor(effective);
     const rows = db.prepare(`${selectActivity}${where}`).all(...params);
-    const ready = rows.filter((r) => r.status === "ready"),
-      pending = rows.filter((r) => r.status === "pending");
-    const metrics = new Map(),
-      byUnit = new Map(),
+    const ready = rows.filter((r) => r.status === "ready" && !r.duplicate_of),
+      pending = rows.filter((r) => r.status === "pending" && !r.duplicate_of);
+    const byUnit = new Map(),
       byCategory = new Map(),
       months = new Map();
     for (const r of ready) {
@@ -471,16 +522,6 @@ export function registerDataRoutes(app, db, dataDir) {
       );
       const month = r.date.slice(0, 7);
       months.set(month, (months.get(month) || 0) + 1);
-      for (const m of JSON.parse(r.metrics)) {
-        const key = `${m.label}|${m.unit}`;
-        const prev = metrics.get(key) || {
-          label: m.label,
-          unit: m.unit,
-          value: 0,
-        };
-        prev.value += m.value;
-        metrics.set(key, prev);
-      }
     }
     let fileWhere = " WHERE purpose='archive'",
       fileParams = [];
@@ -492,21 +533,25 @@ export function registerDataRoutes(app, db, dataDir) {
       fileWhere += " AND owner_id=?";
       fileParams.push(req.user.id);
     }
-    if (req.query.from) {
+    if (effective.query.from) {
       fileWhere += " AND substr(created_at,1,10)>=?";
-      fileParams.push(req.query.from);
+      fileParams.push(effective.query.from);
     }
-    if (req.query.to) {
+    if (effective.query.to) {
       fileWhere += " AND substr(created_at,1,10)<=?";
-      fileParams.push(req.query.to);
+      fileParams.push(effective.query.to);
     }
     res.json({
       ready: ready.length,
       pending: pending.length,
+      range: effective.query.from
+        ? { from: effective.query.from, to: effective.query.to }
+        : null,
       archives: db
         .prepare(`SELECT COUNT(*) AS count FROM files${fileWhere}`)
         .get(...fileParams).count,
-      metrics: [...metrics.values()],
+      duplicates: rows.filter((r) => r.duplicate_of).length,
+      metrics: aggregateMetrics(db, ready),
       byUnit: [...byUnit].map(([name, count]) => ({ name, count })),
       byCategory: [...byCategory].map(([name, count]) => ({ name, count })),
       months: [...months]
@@ -661,9 +706,17 @@ export function registerDataRoutes(app, db, dataDir) {
     }
     if (req.query.q) {
       conditions.push(
-        "(f.title LIKE ? OR f.keywords LIKE ? OR f.description LIKE ?)",
+        "(f.title LIKE ? OR f.keywords LIKE ? OR f.description LIKE ? OR EXISTS (SELECT 1 FROM activity_extractions ex WHERE ex.activity_id=f.activity_id AND ex.result_json LIKE ?))",
       );
-      params.push(...Array(3).fill(`%${String(req.query.q).slice(0, 200)}%`));
+      params.push(...Array(4).fill(`%${String(req.query.q).slice(0, 200)}%`));
+    }
+    if (req.query.from) {
+      conditions.push("substr(f.created_at,1,10)>=?");
+      params.push(req.query.from);
+    }
+    if (req.query.to) {
+      conditions.push("substr(f.created_at,1,10)<=?");
+      params.push(req.query.to);
     }
     if (req.query.unlinked === "1") conditions.push("f.activity_id IS NULL");
     if (req.query.attachable === "1") {
