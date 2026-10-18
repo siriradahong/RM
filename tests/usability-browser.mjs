@@ -70,11 +70,11 @@ try {
   await p.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await p.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   await p.getByRole("heading", { name: "รายงานของฉัน", exact: true }).waitFor();
-  assert.equal(await p.locator(".sidebar nav button").count(), 9);
+  assert.equal(await p.locator(".sidebar nav button").count(), 6);
   assert.equal(
     await p
       .locator(".sidebar nav")
-      .getByRole("button", { name: "รายงานจาก LINE", exact: true })
+      .getByRole("button", { name: "ส่งรายงานทาง LINE", exact: true })
       .count(),
     1,
   );
@@ -125,7 +125,9 @@ try {
   await p.getByLabel("ตั้งแต่", { exact: true }).fill("2026-10-02");
   await p.getByLabel("ถึง", { exact: true }).fill("2026-10-02");
   await p.locator(".trend-list button").first().click();
-  await p.getByRole("heading", { name: "คลังข้อมูล", exact: true }).waitFor();
+  await p
+    .getByRole("heading", { name: "ค้นหางานและเอกสาร", exact: true })
+    .waitFor();
   assert.equal(
     await p.getByLabel("ตั้งแต่", { exact: true }).inputValue(),
     "2026-10-02",
@@ -137,7 +139,9 @@ try {
   await p.goto(origin + "/#dashboard/mine");
   await p.locator(".metric-grid button").first().waitFor();
   await p.locator(".metric-grid button").first().click();
-  await p.getByRole("heading", { name: "คลังข้อมูล", exact: true }).waitFor();
+  await p
+    .getByRole("heading", { name: "ค้นหางานและเอกสาร", exact: true })
+    .waitFor();
   await p
     .getByRole("button", { name: "ตัวอย่าง ประชุมเครือข่าย อสม.", exact: true })
     .waitFor();
@@ -145,7 +149,9 @@ try {
   await p.goto(origin + "/#dashboard/mine");
   await p.locator(".concise-stats .stat").first().waitFor();
   await p.locator(".concise-stats .stat").first().click();
-  await p.getByRole("heading", { name: "คลังข้อมูล", exact: true }).waitFor();
+  await p
+    .getByRole("heading", { name: "ค้นหางานและเอกสาร", exact: true })
+    .waitFor();
   await p
     .getByRole("button", { name: "ตัวอย่าง ประชุมเครือข่าย อสม.", exact: true })
     .waitFor();
@@ -172,13 +178,18 @@ try {
     "ตัวอย่างรายงานข้อความเดียวพร้อมแนบเอกสาร",
   );
   assert.equal(await p.getByLabel("ข้อความรายงาน").isEnabled(), true);
-  await p.getByRole("button", { name: "รับจาก LINE", exact: true }).click();
   await p
-    .getByRole("heading", { name: "รายงานจาก LINE", exact: true })
+    .getByRole("navigation", { name: "ช่องทางเพิ่มข้อมูล" })
+    .getByRole("button", { name: "ส่งรายงานทาง LINE", exact: true })
+    .click();
+  await p
+    .getByRole("heading", { name: "ส่งรายงานทาง LINE", exact: true })
     .waitFor();
   assert.ok(
     await p
-      .getByText("ยังไม่ได้เชื่อมต่อกลุ่มรับรายงาน", { exact: false })
+      .getByText("ผู้ดูแลยังไม่ได้ตั้งค่าช่องทางรับรายงานจาก LINE", {
+        exact: false,
+      })
       .count(),
   );
   await p.goto(origin + "/#import");

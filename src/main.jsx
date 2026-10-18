@@ -21,6 +21,7 @@ import ReportDrafts from "./report-drafts";
 import Reports from "./reports";
 import Projects from "./projects";
 import ScheduleCalendar from "./schedule-calendar";
+import LineReporting from "./line-reporting";
 import React, {
   useState,
   useEffect,
@@ -462,12 +463,8 @@ function App() {
   const current = path.split("/")[0],
     view = path.split("/")[1];
   const menu = [
-    ...(canWrite
-      ? [
-          ["inbox", "รายงานจาก LINE", Inbox],
-          ["import", "เขียนรายงาน", FileText],
-        ]
-      : []),
+    ...(canWrite ? [["line", "ส่งรายงานทาง LINE", Inbox]] : []),
+    ...(canReport ? [["reports", "รายงานสรุป", FileText]] : []),
     ...(canReport
       ? [
           ["dashboard/mine", "แดชบอร์ดของฉัน", LayoutDashboard],
@@ -483,9 +480,7 @@ function App() {
       ? [["dashboard/overview", "แดชบอร์ดสำนัก", Building2]]
       : []),
     ["feed", "ฟีดข่าวภายใน", Newspaper],
-    ["library", "คลังข้อมูล", FolderOpen],
-    ...(canReport ? [["reports", "รายงานสรุป", FileText]] : []),
-    ["workspace", "พื้นที่งานของฉัน", Clock],
+
     ...(isAdmin ? [["admin", "ดูแลระบบ", Settings]] : []),
   ];
   const activeMenu = (p) =>
@@ -493,6 +488,7 @@ function App() {
       ? path === p
       : current === p ||
         (p === "reports" && current === "drafts") ||
+        (p === "line" && ["inbox", "import"].includes(current)) ||
         (p === "feed" && current === "news") ||
         (p === "admin" && current === "audit");
   const requestedDashboard = view || landing(user).split("/")[1];
@@ -518,14 +514,25 @@ function App() {
   if ((current === "dashboard" || !current) && canReport)
     page = (
       <DashboardView
-        key={dashboardMode}
+        key={dashboardMode + ":" + (path.split("/")[2] || "")}
         mode={dashboardMode}
         user={user}
         meta={meta}
         navigate={navigate}
         canWrite={canWrite}
+        initialTab={path.split("/")[2] === "search" ? "search" : "summary"}
+        renderSearch={(search, onClearSearch) => (
+          <Library
+            embedded
+            personal={dashboardMode === "mine"}
+            search={search}
+            onClearSearch={onClearSearch}
+          />
+        )}
       />
     );
+  else if (current === "line" && canWrite)
+    page = <LineReporting user={user} meta={meta} navigate={navigate} />;
   else if (current === "reports" && canReport)
     page = <Reports user={user} meta={meta} navigate={navigate} />;
   else if (current === "drafts" && canReport)
@@ -554,7 +561,8 @@ function App() {
         navigate={navigate}
       />
     );
-  else if (current === "library") page = <Library />;
+  else if (current === "library")
+    page = canReport ? <LegacySearchRedirect /> : <Library />;
   else if (current === "activity") page = <ActivityEditor id={view} />;
   else if (current === "import" && canWrite) page = <ImportPage />;
   else if (current === "inbox" && canWrite) page = <LineInbox />;
@@ -1053,12 +1061,38 @@ function WorkTable({ rows }) {
     </div>
   );
 }
-function Library() {
+function LegacySearchRedirect() {
+  const { user, navigate } = useApp();
+  useEffect(() => {
+    let mine = false;
+    try {
+      mine =
+        JSON.parse(sessionStorage.getItem("rm-library-filter") || "{}").mine ===
+        "1";
+    } catch {}
+    const mode = mine
+      ? "mine"
+      : user.roles.includes("executive")
+        ? "overview"
+        : user.delegated ||
+            user.roles.some((r) => ["head", "center_head"].includes(r))
+          ? "unit"
+          : "mine";
+    navigate("dashboard/" + mode + "/search");
+  }, []);
+  return <Loading />;
+}
+function Library({
+  embedded = false,
+  personal = false,
+  search = "",
+  onClearSearch,
+}) {
   const { navigate, meta, canWrite } = useApp();
   const [tab, setTab] = useState(() => {
     const t = sessionStorage.getItem("rm-library-tab") || "activities";
     sessionStorage.removeItem("rm-library-tab");
-    return t;
+    return embedded && t === "calendar" ? "activities" : t;
   });
   const [filters, setFilters] = useState(() => {
     try {
@@ -1070,27 +1104,36 @@ function Library() {
     }
   });
   const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    if (embedded) setFilters((f) => ({ ...f, q: search, page: 1 }));
+  }, [embedded, search]);
   const resource = useResource(
-    "/" + (tab === "files" ? "files" : "activities") + "?" + query(filters),
+    "/" +
+      (tab === "files" ? "files" : "activities") +
+      "?" +
+      query({ ...filters, ...(personal ? { mine: "1" } : {}) }),
   );
+  const FilterPanel = embedded ? "details" : React.Fragment;
   return (
     <>
-      <Header
-        title="คลังข้อมูล"
-        description="ค้นหาเอกสาร รายการงาน และหลักฐานต้นทางที่จัดเก็บไว้ส่วนกลาง"
-        action={
-          canWrite && (
-            <Button primary icon={Plus} onClick={() => navigate("import")}>
-              เพิ่มข้อมูล
-            </Button>
-          )
-        }
-      />
+      {!embedded && (
+        <Header
+          title="ค้นหางานและเอกสาร"
+          description="ค้นหารายการงานและหลักฐานต้นทางตามสิทธิ์ของคุณ"
+          action={
+            canWrite && (
+              <Button primary icon={Plus} onClick={() => navigate("import")}>
+                เพิ่มข้อมูล
+              </Button>
+            )
+          }
+        />
+      )}
       <Tabs
         items={[
           ["activities", "รายการงาน"],
           ["files", "ไฟล์และเอกสาร"],
-          ["calendar", "ปฏิทินกิจกรรม"],
+          ...(!embedded ? [["calendar", "ปฏิทินกิจกรรม"]] : []),
         ]}
         value={tab}
         onChange={(t) => {
@@ -1098,54 +1141,80 @@ function Library() {
           setFilters((f) => ({ ...f, page: 1 }));
         }}
       />
-      <Filters
-        value={filters}
-        onChange={setFilters}
-        dates={tab !== "calendar"}
-        attachments={tab === "activities"}
-      />
-      {tab === "activities" && (
-        <div className="filters compact">
-          <select
-            aria-label="ประเภทงาน"
-            value={filters.category || ""}
-            onChange={(e) =>
-              setFilters({ ...filters, category: e.target.value, page: 1 })
+      <FilterPanel
+        {...(embedded
+          ? {
+              className: "search-filter-options",
+              open: !!(
+                filters.from ||
+                filters.to ||
+                filters.status ||
+                filters.unit ||
+                filters.category ||
+                filters.source
+              ),
             }
-          >
-            <option value="">ทุกประเภทงาน</option>
-            {meta.categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="สถานะ"
-            value={filters.status || ""}
-            onChange={(e) =>
-              setFilters({ ...filters, status: e.target.value, page: 1 })
-            }
-          >
-            <option value="">ทุกสถานะ</option>
-            <option value="ready">พร้อมสรุป</option>
-            <option value="pending">ตรวจข้อมูลที่อ่านได้</option>
-            <option value="duplicate">ซ้ำ ไม่รวมยอด</option>
-          </select>
-          <select
-            aria-label="แหล่งที่มา"
-            value={filters.source || ""}
-            onChange={(e) =>
-              setFilters({ ...filters, source: e.target.value, page: 1 })
-            }
-          >
-            <option value="">ทุกแหล่งที่มา</option>
-            <option value="line">LINE</option>
-            <option value="web">อัปโหลดผ่านเว็บ</option>
-          </select>
-          <Button onClick={() => setFilters({ page: 1 })}>ล้างตัวกรอง</Button>
-        </div>
-      )}
+          : {})}
+      >
+        {embedded && <summary>ตัวกรองเพิ่มเติม</summary>}
+        <Filters
+          value={filters}
+          onChange={setFilters}
+          search={!embedded}
+          scope={!personal}
+          dates={tab !== "calendar"}
+          attachments={tab === "activities"}
+        />
+        {tab === "activities" && (
+          <div className="filters compact">
+            <select
+              aria-label="ประเภทงาน"
+              value={filters.category || ""}
+              onChange={(e) =>
+                setFilters({ ...filters, category: e.target.value, page: 1 })
+              }
+            >
+              <option value="">ทุกประเภทงาน</option>
+              {meta.categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="สถานะ"
+              value={filters.status || ""}
+              onChange={(e) =>
+                setFilters({ ...filters, status: e.target.value, page: 1 })
+              }
+            >
+              <option value="">ทุกสถานะ</option>
+              <option value="ready">พร้อมสรุป</option>
+              <option value="pending">ตรวจข้อมูลที่อ่านได้</option>
+              <option value="duplicate">ซ้ำ ไม่รวมยอด</option>
+            </select>
+            <select
+              aria-label="แหล่งที่มา"
+              value={filters.source || ""}
+              onChange={(e) =>
+                setFilters({ ...filters, source: e.target.value, page: 1 })
+              }
+            >
+              <option value="">ทุกแหล่งที่มา</option>
+              <option value="line">LINE</option>
+              <option value="web">อัปโหลดผ่านเว็บ</option>
+            </select>
+            <Button
+              onClick={() => {
+                setFilters({ page: 1 });
+                onClearSearch?.();
+              }}
+            >
+              ล้างตัวกรอง
+            </Button>
+          </div>
+        )}
+      </FilterPanel>
       {tab === "calendar" ? (
         <ActivityCalendar filters={filters} navigate={navigate} />
       ) : (
@@ -1365,7 +1434,7 @@ function ImportPage() {
         }
         sessionStorage.setItem("rm-library-tab", "files");
         notify("บันทึกเข้าคลังแล้ว ไม่รวมในสรุปผลงาน");
-        navigate("library");
+        navigate("dashboard/mine/search");
       } else {
         const out = await api("/activities", {
           method: "POST",
@@ -1751,8 +1820,11 @@ function ActivityEditor({ id }) {
         title="ตรวจข้อมูลรายงาน"
         description="อ่านสรุปและแก้ไขเฉพาะข้อมูลที่ต้องการ"
         action={
-          <Button icon={ArrowLeft} onClick={() => navigate("library")}>
-            กลับคลังข้อมูล
+          <Button
+            icon={ArrowLeft}
+            onClick={() => navigate("dashboard/mine/search")}
+          >
+            กลับแดชบอร์ดของฉัน
           </Button>
         }
       />
@@ -2537,9 +2609,9 @@ function IntakeTabs({ active }) {
       </button>
       <button
         className={active === "line" ? "active" : ""}
-        onClick={() => navigate("inbox")}
+        onClick={() => navigate("line")}
       >
-        รับจาก LINE
+        ส่งรายงานทาง LINE
       </button>
     </div>
   );

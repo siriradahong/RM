@@ -82,8 +82,11 @@ try {
   await login(s, "staff");
   // Enter an original report through the existing one-box intake and confirm source facts.
   await s
-    .getByRole("button", { name: "เขียนรายงาน", exact: true })
+    .getByRole("button", { name: "ส่งรายงานทาง LINE", exact: true })
     .first()
+    .click();
+  await s
+    .getByRole("button", { name: "ส่งข้อความและไฟล์ผ่านเว็บ", exact: true })
     .click();
   const text = s.locator("textarea").first();
   await text.fill(

@@ -13,7 +13,15 @@ import ActivityCalendar from "./calendar";
 import { reportPeriod, periodLabel } from "../shared/report-period";
 import { query } from "./api";
 const number = (n) => n.toLocaleString("th-TH", { maximumFractionDigits: 2 });
-export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
+export default function Dashboard({
+  mode,
+  user,
+  meta,
+  navigate,
+  canWrite,
+  initialTab = "summary",
+  renderSearch,
+}) {
   const [period, setPeriod] = useState({
     period: "month",
     anchor: today(),
@@ -23,7 +31,8 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
   const [unit, setUnit] = useState(
     mode === "unit" ? String(user.scopes[0] || user.unit_id || "") : "",
   );
-  const [tab, setTab] = useState("summary");
+  const [tab, setTab] = useState(initialTab);
+  const [search, setSearch] = useState("");
   let range, error;
   try {
     range = reportPeriod(period);
@@ -45,7 +54,7 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
       JSON.stringify({ ...filters, ...extra }),
     );
     sessionStorage.setItem("rm-library-tab", "activities");
-    navigate("library");
+    navigate("dashboard/" + mode + "/search");
   }
   function drillMonth(month) {
     const first = month + "-01",
@@ -90,37 +99,28 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
       >
         ดูผลงานในช่วงเวลา และเปิดรายงานที่มาของแต่ละยอด
       </Heading>
-      <div
-        className="section-tabs"
-        role="navigation"
-        aria-label="มุมมองแดชบอร์ด"
-      >
-        {[
-          ["mine", "รายงานของฉัน"],
-          ["unit", "ข้อมูลหน่วยงาน"],
-          ["overview", "ภาพรวมสำนัก"],
-        ]
-          .filter(
-            ([k]) =>
-              k === "mine" ||
-              (k === "unit" &&
-                (user.delegated ||
-                  user.roles.some((r) =>
-                    ["head", "center_head"].includes(r),
-                  ))) ||
-              (k === "overview" && user.roles.includes("executive")),
-          )
-          .map(([k, label]) => (
-            <button
-              key={k}
-              className={mode === k ? "active" : ""}
-              aria-current={mode === k ? "page" : undefined}
-              onClick={() => navigate("dashboard/" + k)}
-            >
-              {label}
-            </button>
-          ))}
-      </div>
+      {mode === "mine" && (
+        <section
+          className="panel dashboard-search"
+          aria-label="ค้นหารายงานส่วนตัว"
+        >
+          <Field label="ค้นหางานของฉัน">
+            <input
+              type="search"
+              value={search}
+              placeholder="ค้นหาชื่อเรื่อง ข้อความ หรือคำสำคัญ…"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setTab("search");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setTab("search");
+              }}
+            />
+          </Field>
+          <Button onClick={() => setTab("search")}>ค้นหางาน</Button>
+        </section>
+      )}
       {tab === "summary" && (
         <section className="period-toolbar panel" aria-label="ตัวกรองแดชบอร์ด">
           <Field label="รอบรายงาน">
@@ -206,6 +206,12 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
           สรุปผลงาน
         </button>
         <button
+          className={tab === "search" ? "active" : ""}
+          onClick={() => setTab("search")}
+        >
+          ค้นหางานและเอกสาร
+        </button>
+        <button
           className={tab === "calendar" ? "active" : ""}
           onClick={() => setTab("calendar")}
         >
@@ -216,6 +222,24 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
         <p className="notice error" role="alert">
           {error}
         </p>
+      ) : tab === "search" ? (
+        <section
+          className="dashboard-search-results"
+          aria-label="ผลการค้นหางาน"
+        >
+          <h2>ค้นหางานและเอกสาร</h2>
+          {mode !== "mine" && (
+            <Field label="ค้นหางาน">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="ค้นหาชื่อเรื่องหรือคำสำคัญ"
+              />
+            </Field>
+          )}
+          {renderSearch?.(search, () => setSearch(""))}
+        </section>
       ) : tab === "calendar" ? (
         <ActivityCalendar
           filters={filters}

@@ -229,7 +229,10 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page
     .locator(".sidebar nav")
-    .getByRole("button", { name: "เขียนรายงาน", exact: true })
+    .getByRole("button", { name: "ส่งรายงานทาง LINE", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "ส่งข้อความและไฟล์ผ่านเว็บ", exact: true })
     .click();
   await page.getByLabel("ข้อความรายงาน").fill("ประชุมเครือข่าย อสม.");
   await page.locator("input[type=file]").setInputFiles({
@@ -375,7 +378,11 @@ try {
       fullPage: true,
     });
     await page.getByRole("button", { name: "เปิดเมนู", exact: true }).click();
-    await page.getByRole("button", { name: "คลังข้อมูล", exact: true }).click();
+    await page
+      .locator(".sidebar nav")
+      .getByRole("button", { name: "แดชบอร์ดของฉัน", exact: true })
+      .click();
+    await page.getByRole("button", { name: "ค้นหางาน", exact: true }).click();
     await page
       .getByRole("button", { name: "ประชุมเครือข่าย อสม.", exact: true })
       .click();
@@ -693,7 +700,7 @@ try {
     .getByRole("button", { name: "ฝากไฟล์ไว้ค้นหา", exact: true })
     .click();
   await staff
-    .getByRole("heading", { name: "คลังข้อมูล", exact: true })
+    .getByRole("heading", { name: "ค้นหางานและเอกสาร", exact: true })
     .waitFor();
   assert.equal(
     app.locals.db.prepare("SELECT count(*) n FROM activities").get().n,
