@@ -1,3 +1,16 @@
+import { metricUnits } from "../shared/metric-units";
+import {
+  Workspace,
+  AccountTools,
+  NotificationButton,
+  ScopeAdmin,
+  OrganizationHistory,
+  RoleApprovals,
+  ActivityScope,
+  AISuggestion,
+  LineRegistration,
+  LineProcessingStatus,
+} from "./scope-workspace";
 import DashboardView from "./dashboard";
 import ActivityCalendar from "./calendar";
 import DuplicateReview from "./duplicate-review";
@@ -64,6 +77,7 @@ const useApp = () => useContext(Context);
 const roleNames = {
   staff: "เจ้าหน้าที่ปฏิบัติงาน",
   head: "หัวหน้าฝ่าย",
+  center_head: "หัวหน้าศูนย์",
   executive: "ผู้บริหารสำนัก",
   pr: "เจ้าหน้าที่ประชาสัมพันธ์",
   admin: "ผู้ดูแลระบบ",
@@ -374,7 +388,9 @@ function App() {
   const landing = (u) =>
     u.roles.includes("executive")
       ? "dashboard/overview"
-      : u.roles.includes("head")
+      : u.roles.includes("head") ||
+          u.roles.includes("center_head") ||
+          u.delegated
         ? "dashboard/unit"
         : u.roles.includes("staff")
           ? "dashboard/mine"
@@ -425,14 +441,23 @@ function App() {
     }
   }
   if (loading) return <Loading />;
-  if (!user) return <Login onLogin={authenticated} />;
+  if (!user)
+    return path.startsWith("line-register") ? (
+      <LineRegistration onLogin={authenticated} />
+    ) : (
+      <Login onLogin={authenticated} />
+    );
   if (!meta) return <Loading />;
-  const canWrite = user.roles.some((r) => ["staff", "head"].includes(r)),
+  const canWrite =
+      user.delegated ||
+      user.roles.some((r) => ["staff", "head", "center_head"].includes(r)),
     isPr = user.roles.includes("pr"),
     isAdmin = user.roles.includes("admin");
-  const canReport = user.roles.some((r) =>
-    ["staff", "head", "executive"].includes(r),
-  );
+  const canReport =
+    user.delegated ||
+    user.roles.some((r) =>
+      ["staff", "head", "center_head", "executive"].includes(r),
+    );
   const menu = [
     ...(canReport ? [["dashboard", "แดชบอร์ด", LayoutDashboard]] : []),
     ...(canWrite ? [["import", "เพิ่มข้อมูล", Plus]] : []),
@@ -444,10 +469,20 @@ function App() {
         ]
       : []),
     ["feed", "ฟีดข่าวภายใน", Newspaper],
+    ["workspace", "พื้นที่งานของฉัน", Clock],
     ...(isAdmin ? [["admin", "ดูแลระบบ", Settings]] : []),
   ];
   const current = path.split("/")[0],
     view = path.split("/")[1];
+  const requestedDashboard = view || landing(user).split("/")[1];
+  const dashboardMode =
+    requestedDashboard === "overview" && user.roles.includes("executive")
+      ? "overview"
+      : requestedDashboard === "unit" &&
+          (user.delegated ||
+            user.roles.some((r) => ["head", "center_head"].includes(r)))
+        ? "unit"
+        : "mine";
   const ctx = {
     user,
     meta,
@@ -462,8 +497,8 @@ function App() {
   if ((current === "dashboard" || !current) && canReport)
     page = (
       <DashboardView
-        key={view || "overview"}
-        mode={view || "overview"}
+        key={dashboardMode}
+        mode={dashboardMode}
         user={user}
         meta={meta}
         navigate={navigate}
@@ -479,6 +514,16 @@ function App() {
   else if (current === "projects" && canReport)
     page = (
       <Projects user={user} meta={meta} navigate={navigate} notify={notify} />
+    );
+  else if (current === "workspace")
+    page = (
+      <Workspace
+        view={view}
+        detailId={path.split("/")[2]}
+        user={user}
+        meta={meta}
+        navigate={navigate}
+      />
     );
   else if (current === "library") page = <Library />;
   else if (current === "activity") page = <ActivityEditor id={view} />;
@@ -554,7 +599,12 @@ function App() {
                     ? landing({
                         ...user,
                         roles: user.roles.filter((r) =>
-                          ["staff", "head", "executive"].includes(r),
+                          [
+                            "staff",
+                            "head",
+                            "center_head",
+                            "executive",
+                          ].includes(r),
                         ),
                       }).replace(/^(admin|news)$/, "dashboard/overview")
                     : p,
@@ -602,6 +652,7 @@ function App() {
                         "รายละเอียดข้อมูล"}
             </b>
           </div>
+          <NotificationButton navigate={navigate} />
           <button className="profile" onClick={() => setAccount(true)}>
             <span className="avatar">{user.name.slice(0, 1)}</span>
             <span>
@@ -642,6 +693,7 @@ function App() {
               <Badge key={r}>{roleNames[r]}</Badge>
             ))}
           </div>
+          <AccountTools user={user} meta={meta} navigate={navigate} />
           <PasswordForm
             onChanged={() => {
               setUser(null);
@@ -660,6 +712,7 @@ function App() {
   );
 }
 function Login({ onLogin }) {
+  const line = useResource("/auth/line/status");
   const [show, setShow] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -760,6 +813,15 @@ function Login({ onLogin }) {
               {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
             </Button>
           </form>
+          {line.data?.configured ? (
+            <a className="button line-login" href="/api/auth/line/start">
+              เข้าสู่ระบบด้วย LINE
+            </a>
+          ) : (
+            <small className="muted">
+              LINE Login ยังไม่ได้ตั้งค่า ใช้บัญชีของหน่วยงานด้านบน
+            </small>
+          )}
           <div className="login-help">
             <ShieldCheck size={20} />
             <span>
@@ -837,6 +899,7 @@ function Filters({
   search = true,
   scope = true,
   dates = true,
+  attachments = false,
 }) {
   const { meta } = useApp();
   const set = (k, v) => onChange({ ...value, [k]: v, page: 1 });
@@ -881,14 +944,26 @@ function Filters({
           </label>
         </>
       )}
+      {attachments && (
+        <select
+          aria-label="ไฟล์แนบของรายงาน"
+          value={value.attachments || ""}
+          onChange={(e) => set("attachments", e.target.value)}
+        >
+          <option value="">ไฟล์แนบทุกแบบ</option>
+          <option value="image">มีรูปภาพ</option>
+          <option value="file">มีไฟล์เอกสาร</option>
+          <option value="none">ไม่มีไฟล์แนบ</option>
+        </select>
+      )}
       {scope && (
         <select
           aria-label="ขอบเขตข้อมูล"
           value={value.mine || ""}
           onChange={(e) => set("mine", e.target.value)}
         >
-          <option value="">ข้อมูลทั้งหมด</option>
-          <option value="1">ข้อมูลที่ฉันนำเข้า</option>
+          <option value="">ข้อมูลตามสิทธิ์ของฉัน</option>
+          <option value="1">รายงานของฉัน</option>
         </select>
       )}
     </div>
@@ -1021,6 +1096,7 @@ function Library() {
         value={filters}
         onChange={setFilters}
         dates={tab !== "calendar"}
+        attachments={tab === "activities"}
       />
       {tab === "activities" && (
         <div className="filters compact">
@@ -1152,6 +1228,14 @@ function Library() {
   );
 }
 function FilePreview({ file, onClose }) {
+  if (file.purged)
+    return (
+      <Modal title={file.title} onClose={onClose}>
+        <Notice>
+          ไฟล์ครบอายุเก็บและถูกลบแล้ว ยังคงชื่อรายการและประวัติการจัดเก็บไว้
+        </Notice>
+      </Modal>
+    );
   return (
     <Modal title={file.title || file.original_name} onClose={onClose} wide>
       {file.description && (
@@ -1173,7 +1257,7 @@ function FilePreview({ file, onClose }) {
           src={fileUrl(file.id)}
         />
       ) : file.mime !== "text/plain" ? (
-        <Empty title="ดาวน์โหลดเพื่อเปิดในโปรแกรม Excel" />
+        <Empty title="ดาวน์โหลดเพื่อเปิดในโปรแกรมเอกสาร" />
       ) : null}
       <div className="modal-actions">
         <span className="muted">
@@ -1196,7 +1280,8 @@ function ImportPage() {
     return draft;
   });
   const [files, setFiles] = useState([]);
-  const [archive, setArchive] = useState(false);
+  const [archive, setArchive] = useState(false),
+    [newsRequested, setNewsRequested] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
@@ -1208,6 +1293,11 @@ function ImportPage() {
     : user.scopes[0] || user.unit_id;
   const work =
     meta.works.find((w) => w.id === user.work_id && w.unit_id === unit)?.id ||
+    (user.roles.includes("center_head")
+      ? user.work_scopes.find((id) =>
+          meta.works.some((w) => w.id === id && w.unit_id === unit && w.active),
+        )
+      : null) ||
     null;
   const needsAssignment = staffOnly(user) && !assignedWorkReady(user, meta);
   function choose(list) {
@@ -1217,11 +1307,11 @@ function ImportPage() {
       next.some(
         (f) =>
           f.size > 20 * 1024 * 1024 ||
-          !/\.(pdf|xlsx?|png|jpe?g|webp)$/i.test(f.name),
+          !/\.(pdf|docx|xlsx?|png|jpe?g|webp)$/i.test(f.name),
       )
     ) {
       setError(
-        "แนบได้สูงสุด 10 ไฟล์ รองรับ PDF, Excel และรูปภาพ ขนาดไม่เกิน 20 MB ต่อไฟล์",
+        "แนบได้สูงสุด 10 ไฟล์ รองรับ PDF, Word, Excel และรูปภาพ ขนาดไม่เกิน 20 MB ต่อไฟล์",
       );
       return;
     }
@@ -1282,6 +1372,7 @@ function ImportPage() {
             intake: true,
             intake_key: intakeKey.current,
             status: "pending",
+            news_requested: newsRequested,
             file_ids: ids,
             result: "",
             workers: "",
@@ -1343,12 +1434,14 @@ function ImportPage() {
             >
               <FileUp size={32} />
               <h2>ลากไฟล์มาวาง หรือกดแนบไฟล์</h2>
-              <p>PDF, Excel หรือรูปภาพ · สูงสุด 10 ไฟล์ · 20 MB ต่อไฟล์</p>
+              <p>
+                PDF, Word, Excel หรือรูปภาพ · สูงสุด 10 ไฟล์ · 20 MB ต่อไฟล์
+              </p>
               <input
                 type="file"
                 aria-label="แนบไฟล์"
                 multiple
-                accept=".pdf,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+                accept=".pdf,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
                 disabled={busy || uploaded.current.size > 0}
                 onChange={(e) => {
                   choose(e.target.files);
@@ -1382,6 +1475,16 @@ function ImportPage() {
               />{" "}
               เก็บไว้ค้นหาเท่านั้น — ไม่รวมในสรุปผลงาน
             </label>
+            {!archive && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={newsRequested}
+                  onChange={(e) => setNewsRequested(e.target.checked)}
+                />
+                เสนอเป็นข่าวด้วยหลังยืนยันข้อมูล
+              </label>
+            )}
             <details className="intake-details">
               <summary>รายละเอียดการบันทึก · {user.name}</summary>
               <p className="muted">
@@ -1429,7 +1532,7 @@ const blankActivity = (user, extra = {}) => ({
   date: "",
   unit_id: user.unit_id || user.scopes[0] || "",
   category_id: "",
-  work_id: user.work_id || "",
+  work_id: user.work_id || user.work_scopes?.[0] || "",
   area: "",
   workers: "",
   result: "",
@@ -1504,10 +1607,16 @@ function ActivityEditor({ id }) {
       alive = false;
     };
   }, [id]);
-  const editable = fresh ? canWrite : record?.can_edit;
+  const editable = fresh
+    ? canWrite
+    : record?.can_edit && (!record.period_lock || record.amendment_allowed);
   const canChangeAssignment =
-    user.roles.includes("head") &&
-    (fresh || hasHeadScope(user, record?.unit_id));
+    ((user.roles.includes("head") || user.delegated) &&
+      (fresh ||
+        hasHeadScope(user, record?.unit_id) ||
+        user.scopes.includes(record?.unit_id))) ||
+    (user.roles.includes("center_head") &&
+      (fresh || user.work_scopes.includes(record?.work_id)));
   const lockedWork =
     user.roles.includes("staff") && !hasHeadScope(user, form?.unit_id);
   const needsAssignment = fresh && lockedWork && !assignedWorkReady(user, meta);
@@ -1658,6 +1767,19 @@ function ActivityEditor({ id }) {
           {record?.owner_name || user.name}
         </span>
       </div>
+      {record && (
+        <ActivityScope
+          record={record}
+          user={user}
+          meta={meta}
+          refresh={async () => {
+            const r = await api("/activities/" + id);
+            setRecord(r);
+            setForm({ ...r, file_ids: [], inbox_ids: [] });
+            setEvidence(r.files);
+          }}
+        />
+      )}
       {record?.locked_by_project && (
         <Notice>
           รายงานนี้ใช้ตรวจรับงานแล้ว หากต้องแก้ไข
@@ -1667,7 +1789,7 @@ function ActivityEditor({ id }) {
       {record && (
         <DuplicateReview
           key={"duplicate:" + record.id + ":" + record.version}
-          record={record}
+          record={{ ...record, can_edit: editable }}
           navigate={navigate}
           onChanged={async () => {
             const updated = await api("/activities/" + id);
@@ -1754,8 +1876,11 @@ function ActivityEditor({ id }) {
                             (!editable ||
                               (user.roles.includes("staff") &&
                                 u.id === user.unit_id) ||
-                              (user.roles.includes("head") &&
-                                user.scopes.includes(u.id)))),
+                              ((user.roles.includes("head") ||
+                                user.delegated) &&
+                                user.scopes.includes(u.id)) ||
+                              (user.roles.includes("center_head") &&
+                                u.id === user.unit_id))),
                       )}
                     />
                   </select>
@@ -1871,18 +1996,7 @@ function ActivityEditor({ id }) {
                       )
                     }
                   >
-                    {[
-                      "กิจกรรม",
-                      "ครั้ง",
-                      "ครั้งบริการ",
-                      "เที่ยว",
-                      "คน",
-                      "ราย",
-                      "ตัน",
-                      "หลังคาเรือน",
-                      "แห่ง",
-                      "กิโลกรัม",
-                    ].map((u) => (
+                    {metricUnits.map((u) => (
                       <option key={u}>{u}</option>
                     ))}
                   </select>
@@ -1954,6 +2068,17 @@ function ActivityEditor({ id }) {
               textInput("workers", "ผู้ปฏิบัติงานตามข้อมูลต้นทาง", true),
             )}
           </details>
+          {editable && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={Boolean(form.news_requested)}
+                onChange={(e) => change("news_requested", e.target.checked)}
+              />
+              เสนอเป็นข่าวหลังยืนยันข้อมูล
+              ให้ประชาสัมพันธ์ตรวจข้อความและรูปก่อนเผยแพร่
+            </label>
+          )}
         </section>
         <aside className="panel review-evidence">
           <div className="panel-heading">
@@ -1969,6 +2094,12 @@ function ActivityEditor({ id }) {
               </Button>
             )}
           </div>
+          {record?.source_purged_at && (
+            <Notice>
+              ลบข้อความต้นฉบับตามอายุเก็บแล้ว
+              ยังคงข้อมูลสรุปและประวัติการดำเนินการ
+            </Notice>
+          )}
           {record?.source_text && <SourceExcerpt text={record.source_text} />}
           {record?.messages?.map((m) => (
             <SourceExcerpt key={m.id} text={m.text || "ไฟล์จาก LINE"} />
@@ -1981,12 +2112,15 @@ function ActivityEditor({ id }) {
           <div className="review-files">
             {evidence.map((f) => (
               <button type="button" key={f.id} onClick={() => setPreview(f)}>
-                {f.mime.startsWith("image/") ? (
+                {!f.purged && f.mime.startsWith("image/") ? (
                   <img src={fileUrl(f.id)} alt={f.original_name} />
                 ) : (
                   <FileText size={24} />
                 )}
-                <span>{f.original_name || f.title}</span>
+                <span>
+                  {f.original_name || f.title}
+                  {f.purged ? " · ครบอายุเก็บแล้ว" : ""}
+                </span>
                 <small>{bytes(f.size)}</small>
               </button>
             ))}
@@ -2249,9 +2383,9 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
     if (!file || busy) return;
     if (
       file.size > 20 * 1024 * 1024 ||
-      !/\.(pdf|xlsx?|png|jpe?g|webp)$/i.test(file.name)
+      !/\.(pdf|docx|xlsx?|png|jpe?g|webp)$/i.test(file.name)
     ) {
-      setError("รองรับ PDF, Excel และรูปภาพ สูงสุด 20 MB ต่อไฟล์");
+      setError("รองรับ PDF, Word, Excel และรูปภาพ สูงสุด 20 MB ต่อไฟล์");
       return;
     }
     setBusy(true);
@@ -2305,7 +2439,7 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
             <input
               type="file"
               disabled={busy}
-              accept=".pdf,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
+              accept=".pdf,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
               onChange={(e) => {
                 setFile(e.target.files[0] || null);
                 uploaded.current = null;
@@ -2313,7 +2447,9 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
               }}
             />
           </Field>
-          <p className="muted">PDF, Excel หรือรูปภาพ · สูงสุด 20 MB ต่อไฟล์</p>
+          <p className="muted">
+            PDF, Word, Excel หรือรูปภาพ · สูงสุด 20 MB ต่อไฟล์
+          </p>
           <Button primary type="submit" disabled={busy || !file || !unit}>
             {busy ? "กำลังเพิ่มไฟล์…" : "อัปโหลดและแนบไฟล์"}
           </Button>
@@ -2350,7 +2486,10 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
                           onClick={() => attachExisting(f)}
                         >
                           <FileText size={20} />
-                          <span>{f.original_name || f.title}</span>
+                          <span>
+                            {f.original_name || f.title}
+                            {f.purged ? " · ครบอายุเก็บแล้ว" : ""}
+                          </span>
                           <small>
                             {f.purpose === "archive"
                               ? "ไฟล์ฝากเก็บ"
@@ -2641,7 +2780,7 @@ function NewsManager() {
     [page, setPage] = useState(1);
   const r = useResource(
     tab === "source"
-      ? "/activities?status=ready&limit=10&page=" + page
+      ? "/news-candidates"
       : "/news?status=" + tab + "&page=" + page,
   );
   return (
@@ -2653,7 +2792,7 @@ function NewsManager() {
       <NewsTabs active="manage" />
       <Tabs
         items={[
-          ["source", "เลือกรายงานต้นทาง"],
+          ["source", "คิวเรื่องเสนอข่าว"],
           ["draft", "ฉบับร่าง"],
           ["published", "เผยแพร่แล้ว"],
         ]}
@@ -2670,13 +2809,17 @@ function NewsManager() {
               {d.items.length ? (
                 <div className="news-list">
                   {d.items.map((n) => (
-                    <article key={n.id}>
+                    <article key={tab === "source" ? n.activity_id : n.id}>
                       <div className="news-list-icon">
                         <Newspaper size={27} />
                       </div>
                       <div>
-                        <Badge status={tab === "source" ? "ready" : n.status}>
-                          {tab === "source" ? "รายงานพร้อมสรุป" : undefined}
+                        <Badge status={n.status}>
+                          {tab === "source"
+                            ? n.status === "ready"
+                              ? "รายงานพร้อมสรุป"
+                              : "รอเจ้าของยืนยันอีกครั้ง"
+                            : undefined}
                         </Badge>
                         <h3>{n.title}</h3>
                         <p>
@@ -2691,7 +2834,9 @@ function NewsManager() {
                           onClick={() =>
                             navigate(
                               "activity/" +
-                                (tab === "source" ? n.id : n.activity_id),
+                                (tab === "source"
+                                  ? n.activity_id
+                                  : n.activity_id),
                             )
                           }
                           icon={FileText}
@@ -2700,11 +2845,12 @@ function NewsManager() {
                         </Button>
                         <Button
                           primary
+                          disabled={tab === "source" && n.status !== "ready"}
                           onClick={() =>
                             navigate(
                               "news/" +
                                 (tab === "source"
-                                  ? "new?activity=" + n.id
+                                  ? "new?activity=" + n.activity_id
                                   : n.id),
                             )
                           }
@@ -2719,14 +2865,15 @@ function NewsManager() {
               ) : (
                 <Empty title="ไม่มีรายการในหมวดนี้" />
               )}
-              <Pager data={d} onPage={setPage} />
+              {tab !== "source" && <Pager data={d} onPage={setPage} />}
             </>
           )}
         </Resource>
       </section>
       <Notice>
         ข่าวฉบับเผยแพร่เป็นข้อมูลแยกจากรายงานต้นทาง และไม่มีการเผยแพร่อัตโนมัติ
-        ขณะนี้เลือกต้นทางด้วยเจ้าหน้าที่ได้ โดยยังไม่ได้เชื่อมบริการ AI เสนอข่าว
+        เจ้าของรายงานส่งเข้าคิวเดียวกับรายงานเดิม
+        ประชาสัมพันธ์ตรวจข้อความและภาพก่อนเผยแพร่
       </Notice>
     </>
   );
@@ -2738,7 +2885,8 @@ function NewsEditor({ id }) {
     [source, setSource] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [preview, setPreview] = useState(false);
+    [preview, setPreview] = useState(false),
+    [imagesReviewed, setImagesReviewed] = useState(false);
   useEffect(() => {
     let alive = true;
     setForm(null);
@@ -2749,13 +2897,16 @@ function NewsEditor({ id }) {
           news?.activity_id ||
           Number(new URLSearchParams(id.split("?")[1]).get("activity"));
         const activity = await api("/activities/" + activityId);
+        const newsPreview = isNew
+          ? await api("/activities/" + activityId + "/news-preview")
+          : null;
         if (alive) {
           setSource(activity);
           setForm(
             news || {
               activity_id: activityId,
-              title: activity.title,
-              body: "",
+              title: newsPreview?.title || activity.title,
+              body: newsPreview?.body || "",
               image_ids: [],
               cover_id: null,
               status: "draft",
@@ -2796,7 +2947,11 @@ function NewsEditor({ id }) {
       const saved = await save();
       const out = await api("/news/" + saved.id + "/publish", {
         method: "POST",
-        body: { version: saved.version },
+        body: {
+          version: saved.version,
+          images_reviewed: imagesReviewed,
+          privacy_reviewed: imagesReviewed,
+        },
       });
       setForm(out);
       setPreview(false);
@@ -2874,6 +3029,13 @@ function NewsEditor({ id }) {
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                 />
               </Field>
+              {!locked && (
+                <AISuggestion
+                  path={"/activities/" + source.id + "/news-ai-draft"}
+                  configured={Boolean(meta.ai?.configured)}
+                  onUse={(p) => setForm({ ...form, body: p.summary })}
+                />
+              )}
               <Field label="เนื้อหาข่าว *">
                 <textarea
                   required
@@ -2968,6 +3130,16 @@ function NewsEditor({ id }) {
                 ))}
             </select>
           </Field>
+          {!locked && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={imagesReviewed}
+                onChange={(e) => setImagesReviewed(e.target.checked)}
+              />
+              ตรวจข้อมูลส่วนบุคคลในข้อความ สิทธิ์และความเหมาะสมของรูปภาพแล้ว
+            </label>
+          )}
           <Notice>
             การเผยแพร่จะแสดงบนฟีดภายในก่อน การส่ง LINE
             เป็นอีกขั้นตอนหนึ่งและแสดงสถานะแยกกัน
@@ -3000,7 +3172,7 @@ function NewsEditor({ id }) {
 
 function Admin({ tab: requestedTab }) {
   const [settingsView, setSettingsView] = useState("organization");
-  const { navigate, meta } = useApp();
+  const { navigate, meta, user } = useApp();
   const tab = ["users", "master", "line"].includes(requestedTab)
     ? requestedTab
     : "users";
@@ -3025,7 +3197,10 @@ function Admin({ tab: requestedTab }) {
         onChange={(value) => navigate("admin/" + value)}
       />
       {tab === "users" ? (
-        <UsersAdmin />
+        <>
+          <UsersAdmin />
+          <RoleApprovals user={user} />
+        </>
       ) : tab === "master" ? (
         <>
           <div className="section-tabs" aria-label="ตั้งค่าข้อมูล">
@@ -3041,16 +3216,28 @@ function Admin({ tab: requestedTab }) {
             >
               รูปแบบรายงาน
             </button>
+            <button
+              className={settingsView === "scope" ? "active" : ""}
+              onClick={() => setSettingsView("scope")}
+            >
+              ค่ามาตรฐานและงานอัตโนมัติ
+            </button>
           </div>
-          {settingsView === "organization" ? (
+          {settingsView === "scope" ? (
+            <ScopeAdmin meta={meta} />
+          ) : settingsView === "organization" ? (
             <MasterAdmin />
           ) : (
             <TemplatesAdmin meta={meta} />
           )}
+          <OrganizationHistory />
           <ReadingStatus />
         </>
       ) : (
-        <LineAdmin />
+        <>
+          <LineAdmin />
+          <LineProcessingStatus />
+        </>
       )}
     </>
   );
@@ -3184,10 +3371,38 @@ function UsersAdmin() {
 }
 function UserForm({ initial, onClose, onSaved }) {
   const { meta, notify } = useApp();
-  const [form, setForm] = useState(initial),
+  const [form, setForm] = useState({
+      ...initial,
+      work_scopes: initial.work_scopes || [],
+    }),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const set = (k, v) => setForm({ ...form, [k]: v });
+  const [separateAffiliation, setSeparateAffiliation] = useState(
+    Boolean(
+      initial.roles.includes("staff") &&
+      initial.roles.includes("head") &&
+      initial.unit_id &&
+      !initial.scopes.includes(initial.unit_id),
+    ),
+  );
+  const set = (k, v) =>
+    setForm((f) => {
+      if (k === "scopes" && f.roles.includes("head") && !separateAffiliation)
+        return {
+          ...f,
+          scopes: v,
+          unit_id: v[0] || null,
+          work_id: f.unit_id === v[0] ? f.work_id : null,
+        };
+      if (
+        k === "roles" &&
+        v.includes("head") &&
+        v.includes("staff") &&
+        !f.unit_id
+      )
+        return { ...f, roles: v, unit_id: f.scopes[0] || null };
+      return { ...f, [k]: v };
+    });
   async function save(e) {
     e.preventDefault();
     setBusy(true);
@@ -3196,7 +3411,7 @@ function UserForm({ initial, onClose, onSaved }) {
         ...form,
         // Hidden staff fields must not assign a department to a new head account.
         // Retain pre-existing affiliation metadata for other roles on edit.
-        unit_id: form.roles.includes("staff")
+        unit_id: form.roles.some((r) => ["staff", "center_head"].includes(r))
           ? form.unit_id
             ? Number(form.unit_id)
             : null
@@ -3283,51 +3498,6 @@ function UserForm({ initial, onClose, onSaved }) {
             ))}
           </div>
         </div>
-        {form.roles.includes("staff") && (
-          <section className="account-assignment" aria-label="กำหนดฝ่ายและงาน">
-            <h3>ฝ่ายและงานสำหรับบทบาทพนักงาน</h3>
-            <Field label="ฝ่าย/กลุ่มงาน">
-              <select
-                value={form.unit_id || ""}
-                required
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    unit_id: e.target.value,
-                    work_id: "",
-                  }))
-                }
-              >
-                <option value="">เลือกฝ่าย/กลุ่มงาน</option>
-                <UnitOptions
-                  units={meta.units}
-                  allowed={meta.units.filter(
-                    (u) => u.active || u.id === form.unit_id,
-                  )}
-                />
-              </select>
-            </Field>
-            <Field label="งานที่รับผิดชอบ *">
-              <select
-                required
-                disabled={!form.unit_id}
-                value={form.work_id || ""}
-                onChange={(e) => set("work_id", e.target.value)}
-              >
-                <option value="">
-                  {!form.unit_id
-                    ? "เลือกฝ่ายก่อน แล้วเลือกงาน"
-                    : "เลือกงานในฝ่ายที่สังกัด"}
-                </option>
-                <WorkOptions
-                  works={meta.works.filter((w) => w.active)}
-                  unitId={form.unit_id}
-                  selected={form.work_id}
-                />
-              </select>
-            </Field>
-          </section>
-        )}
         {form.roles.includes("head") && (
           <div>
             <span className="field-label">หน่วยงานที่หัวหน้ารับผิดชอบ *</span>
@@ -3354,6 +3524,122 @@ function UserForm({ initial, onClose, onSaved }) {
             </div>
           </div>
         )}
+        {form.roles.some((r) => ["staff", "center_head"].includes(r)) && (
+          <section className="account-assignment" aria-label="กำหนดฝ่ายและงาน">
+            <h3>ฝ่ายและงานสำหรับบทบาทพนักงาน</h3>
+            {form.roles.includes("head") && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={separateAffiliation}
+                  onChange={(e) => {
+                    setSeparateAffiliation(e.target.checked);
+                    if (!e.target.checked)
+                      setForm((f) => ({
+                        ...f,
+                        unit_id: f.scopes[0] || null,
+                        work_id: f.unit_id === f.scopes[0] ? f.work_id : null,
+                      }));
+                  }}
+                />
+                ฝ่ายปฏิบัติงานต่างจากฝ่ายที่ดูแล
+              </label>
+            )}
+            {form.roles.includes("head") && !separateAffiliation ? (
+              <Field label="ฝ่ายที่รับผิดชอบ">
+                <input
+                  readOnly
+                  value={
+                    meta.units.find((u) => u.id === Number(form.unit_id))
+                      ?.name || "เลือกฝ่ายที่รับผิดชอบด้านบน"
+                  }
+                />
+              </Field>
+            ) : (
+              <>
+                {" "}
+                <Field label="ฝ่าย/กลุ่มงาน">
+                  <select
+                    value={form.unit_id || ""}
+                    required
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        unit_id: e.target.value,
+                        work_id: "",
+                      }))
+                    }
+                  >
+                    <option value="">เลือกฝ่าย/กลุ่มงาน</option>
+                    <UnitOptions
+                      units={meta.units}
+                      allowed={meta.units.filter(
+                        (u) => u.active || u.id === form.unit_id,
+                      )}
+                    />
+                  </select>
+                </Field>
+              </>
+            )}
+            <Field label="งานที่รับผิดชอบ *">
+              <select
+                required
+                disabled={!form.unit_id}
+                value={form.work_id || ""}
+                onChange={(e) => set("work_id", e.target.value)}
+              >
+                <option value="">
+                  {!form.unit_id
+                    ? "เลือกฝ่ายก่อน แล้วเลือกงาน"
+                    : "เลือกงานในฝ่ายที่สังกัด"}
+                </option>
+                <WorkOptions
+                  works={meta.works.filter((w) => w.active)}
+                  unitId={form.unit_id}
+                  selected={form.work_id}
+                />
+              </select>
+            </Field>
+          </section>
+        )}
+        {form.roles.includes("center_head") && (
+          <fieldset>
+            <legend>ศูนย์/งานที่หัวหน้าศูนย์รับผิดชอบ</legend>
+            {meta.works
+              .filter((w) => w.active && w.unit_id === Number(form.unit_id))
+              .map((w) => (
+                <label className="check" key={w.id}>
+                  <input
+                    type="checkbox"
+                    checked={form.work_scopes.includes(w.id)}
+                    onChange={(e) =>
+                      set(
+                        "work_scopes",
+                        e.target.checked
+                          ? [...form.work_scopes, w.id]
+                          : form.work_scopes.filter((id) => id !== w.id),
+                      )
+                    }
+                  />
+                  {w.name}
+                </label>
+              ))}
+          </fieldset>
+        )}
+        <div className="form-row">
+          <Field label="ตำแหน่ง">
+            <input
+              value={form.position || ""}
+              onChange={(e) => set("position", e.target.value)}
+            />
+          </Field>
+          <Field label="ประเภทบุคลากร (สำหรับแบบสรุป)">
+            <input
+              value={form.personnel_type || ""}
+              onChange={(e) => set("personnel_type", e.target.value)}
+            />
+          </Field>
+        </div>
         <Field label="LINE User ID (ถ้ามี)">
           <input
             value={form.line_user_id || ""}

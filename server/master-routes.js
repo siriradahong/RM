@@ -120,6 +120,10 @@ export function registerMasterRoutes(app, db) {
               .run(...values).lastInsertRowid,
           );
         const row = db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
+        if (["units", "works"].includes(table))
+          db.prepare(
+            "INSERT INTO organization_history(entity,entity_id,payload,recorded_by) VALUES(?,?,?,?)",
+          ).run(table, id, JSON.stringify(row), req.user.id);
         writeAudit(
           db,
           req.user,
@@ -137,7 +141,11 @@ export function registerMasterRoutes(app, db) {
     app.put(`/api/admin/${table}/:id`, save);
     if (table === "categories")
       app.post("/api/categories", (req, res) => {
-        if (!req.user.roles.some((r) => ["staff", "head", "admin"].includes(r)))
+        if (
+          !req.user.roles.some((r) =>
+            ["staff", "head", "center_head", "admin"].includes(r),
+          )
+        )
           throw httpError(403, "ไม่มีสิทธิ์เพิ่มประเภทงาน");
         req.body = { name: req.body.name, active: true };
         save(req, res);

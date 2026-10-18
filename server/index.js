@@ -1,5 +1,8 @@
+import { startJobs } from "./jobs.js";
 import { createApp } from "./app.js";
 const app = createApp();
+const stopJobs = startJobs(app.locals.db, app.locals.dataDir);
+app.locals.resumeLineJobs?.();
 const server = app.listen(
   Number(process.env.PORT || 3001),
   process.env.HOST || "0.0.0.0",
@@ -9,6 +12,7 @@ const server = app.listen(
     ),
 );
 function stop() {
+  stopJobs();
   server.close(() => {
     app.locals.db.close();
     process.exit(0);

@@ -298,6 +298,8 @@ describe("Period reports and persistent project workflow", () => {
       status: "pending",
       metrics: JSON.parse(before.metrics),
       intake: false,
+      news_requested: Boolean(before.news_requested),
+      brief: Boolean(before.brief),
     };
     assert.equal(
       (await req("/activities/" + reports.ready, "staff", "PUT", body)).status,
@@ -364,14 +366,42 @@ describe("Period reports and persistent project workflow", () => {
       5,
     );
   });
-  it('requires a head and verified source for project targets and keeps metric units separate',async()=>{
-    const p=(await req('/projects/'+projectId,'head')).data;
-    const body={version:p.version,label:'ผู้รับบริการ',unit:'ราย',value:100,source:'แผนโครงการ หน้า 2',verified:true};
-    assert.equal((await req(`/projects/${projectId}/target`,'staff','PUT',body)).status,403);
-    assert.equal((await req(`/projects/${projectId}/target`,'head','PUT',{...body,verified:false})).status,400);
-    const r=await req(`/projects/${projectId}/target`,'head','PUT',body);assert.equal(r.status,200);
-    const expected=r.data.performance.sources.flatMap(s=>JSON.parse(s.metrics).filter(m=>m.label===body.label&&m.unit===body.unit)).reduce((n,m)=>n+m.value,0);
-    assert.equal(r.data.performance.actual,expected||null);
-    assert.equal((await req(`/projects/${projectId}/target`,'head','PUT',body)).status,409);
+  it("requires a head and verified source for project targets and keeps metric units separate", async () => {
+    const p = (await req("/projects/" + projectId, "head")).data;
+    const body = {
+      version: p.version,
+      label: "ผู้รับบริการ",
+      unit: "ราย",
+      value: 100,
+      source: "แผนโครงการ หน้า 2",
+      verified: true,
+    };
+    assert.equal(
+      (await req(`/projects/${projectId}/target`, "staff", "PUT", body)).status,
+      403,
+    );
+    assert.equal(
+      (
+        await req(`/projects/${projectId}/target`, "head", "PUT", {
+          ...body,
+          verified: false,
+        })
+      ).status,
+      400,
+    );
+    const r = await req(`/projects/${projectId}/target`, "head", "PUT", body);
+    assert.equal(r.status, 200);
+    const expected = r.data.performance.sources
+      .flatMap((s) =>
+        JSON.parse(s.metrics).filter(
+          (m) => m.label === body.label && m.unit === body.unit,
+        ),
+      )
+      .reduce((n, m) => n + m.value, 0);
+    assert.equal(r.data.performance.actual, expected || null);
+    assert.equal(
+      (await req(`/projects/${projectId}/target`, "head", "PUT", body)).status,
+      409,
+    );
   });
 });

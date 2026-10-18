@@ -13,6 +13,7 @@ export default function ReadingStatus() {
           <div className="setup-pills">
             <span>✓ PDF ที่มีข้อความ</span>
             <span>✓ Excel .xlsx</span>
+            <span>✓ Word .docx</span>
             <span className={d.ocr ? "" : "setup-warning"}>
               {d.ocr
                 ? "✓ OCR ไทย / อังกฤษพร้อม"
@@ -26,8 +27,10 @@ export default function ReadingStatus() {
             </p>
           )}
           <p className="muted">
-            ใช้กติกาช่วยเสนอข้อมูลจากข้อความ ยังไม่ใช้ AI เรียบเรียง
-            ตรวจข้อมูลก่อนยืนยันเสมอ
+            {d.ai?.configured
+              ? "ตั้งค่าโมเดลช่วยสกัดแล้ว หากโมเดลไม่พร้อม ระบบจะแจ้งและใช้การอ่านในเครื่อง"
+              : "ใช้กติกาช่วยเสนอข้อมูลจากข้อความ ยังไม่ได้ตั้งค่าโมเดล AI"}{" "}
+            · ตรวจข้อมูลก่อนยืนยันเสมอ
           </p>
         </section>
       )}

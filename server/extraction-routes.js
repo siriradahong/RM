@@ -1,3 +1,6 @@
+import { extractWithAI, aiStatus, draftWithAI } from "./ai-provider.js";
+import { scopeSettings } from "./scope-routes.js";
+import { assertUnlocked } from "./access.js";
 import { fork } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +17,8 @@ export const extractionStatus = () => ({
   ocr: ["tha", "eng"].every((l) =>
     existsSync(resolve(modelDir(), l + ".traineddata")),
   ),
-  ai: false,
+  ai: aiStatus(),
+  docx: true,
 });
 export function runReader(
   files,
@@ -71,6 +75,7 @@ export function registerExtractionRoutes(app, db, dataDir) {
       .prepare("SELECT * FROM activities WHERE id=?")
       .get(Number(req.params.id));
     if (!row) throw httpError(404, "ไม่พบรายงาน");
+    assertUnlocked(db, req.user, row);
     if (!canEdit(req.user, row))
       throw httpError(403, "ไม่มีสิทธิ์จัดข้อมูลรายงานนี้");
     if (row.status !== "pending")
@@ -114,6 +119,16 @@ export function registerExtractionRoutes(app, db, dataDir) {
         )
         .all(row.unit_id)
         .flatMap((t) => JSON.parse(t.config).metrics);
+      let model = null;
+      if (aiStatus().configured)
+        try {
+          model = await extractWithAI(
+            text,
+            scopeSettings(db).ai_min_confidence,
+          );
+        } catch (e) {
+          read.warnings.push(e.message);
+        }
       const result = {
         ...read,
         suggestions: suggestFields(text, {
@@ -124,6 +139,14 @@ export function registerExtractionRoutes(app, db, dataDir) {
         version: row.version,
         created_at: new Date().toISOString(),
       };
+      if (model) {
+        result.suggestions = {
+          ...result.suggestions,
+          ...model,
+          fields: { ...result.suggestions.fields, ...model.fields },
+          warnings: [...result.suggestions.warnings, ...model.warnings],
+        };
+      }
       transaction(db, () => {
         db.prepare(
           "INSERT INTO activity_extractions(activity_id,result_json) VALUES(?,?) ON CONFLICT(activity_id) DO UPDATE SET result_json=excluded.result_json",

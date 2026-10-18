@@ -1,3 +1,4 @@
+import { Action, EditDialog } from "./scope-workspace";
 import React, { useState } from "react";
 import { api, query } from "./api";
 import {
@@ -26,7 +27,7 @@ export default function Projects({ user, meta, navigate, notify }) {
   const [form, setForm] = useState({
     title: "",
     description: "",
-    unit_id: user.scopes[0] || "",
+    unit_id: user.scopes[0] || user.unit_id || "",
     due_date: today(),
   });
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -54,7 +55,9 @@ export default function Projects({ user, meta, navigate, notify }) {
       <Heading
         title="โครงการและงาน"
         actions={
-          user.roles.includes("head") && (
+          user.roles.some((r) =>
+            ["head", "center_head", "executive"].includes(r),
+          ) && (
             <Button primary onClick={() => setShow(!show)}>
               {show ? "ปิดแบบฟอร์ม" : "สร้างโครงการ"}
             </Button>
@@ -66,8 +69,9 @@ export default function Projects({ user, meta, navigate, notify }) {
       <details className="workflow-guide">
         <summary>การติดตามงานและการแจ้งเตือน</summary>
         <p>
-          แสดงงานใกล้ครบกำหนดและเลยกำหนดในเว็บ การแจ้งเตือนไป LINE
-          ยังไม่ได้เปิดใช้
+          ผู้รับงานอัปเดตว่ายังดำเนินงานต่อ ส่งรายงานหลักฐาน
+          หรือขอเลื่อนกำหนดได้ การเตือนและส่งต่อหัวหน้าขึ้นกับค่ากลาง ส่วน LINE
+          ใช้ได้เมื่อตั้งค่าการเชื่อมต่อแล้ว
         </p>
       </details>
       {show && (
@@ -89,7 +93,13 @@ export default function Projects({ user, meta, navigate, notify }) {
                 onChange={(e) => update("unit_id", e.target.value)}
               >
                 {meta.units
-                  .filter((u) => user.scopes.includes(u.id) && u.active)
+                  .filter(
+                    (u) =>
+                      (user.roles.includes("executive") ||
+                        user.scopes.includes(u.id) ||
+                        user.unit_id === u.id) &&
+                      u.active,
+                  )
                   .map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name}
@@ -515,6 +525,7 @@ function AssignTask({ project: p, onSaved }) {
 function TaskRow({ task: t, project: p, navigate, reload, notify }) {
   const [submit, setSubmit] = useState(false),
     [returning, setReturning] = useState(false),
+    [extension, setExtension] = useState(false),
     [note, setNote] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -561,6 +572,31 @@ function TaskRow({ task: t, project: p, navigate, reload, notify }) {
           </button>{" "}
           · {t.activity_status === "ready" ? "ยืนยันแล้ว" : "รอยืนยัน"}
         </p>
+      )}
+      {t.can_submit &&
+        canAct &&
+        !["submitted", "completed"].includes(t.status) && (
+          <div className="actions">
+            <Action
+              label="วันนี้ยังดำเนินงานต่อ"
+              path={"/tasks/" + t.id + "/update"}
+              after={reload}
+            />
+            <Button onClick={() => setExtension(true)}>ขอเลื่อนกำหนดส่ง</Button>
+          </div>
+        )}
+      {extension && (
+        <EditDialog
+          title="ขอเลื่อนกำหนดส่ง"
+          path={"/tasks/" + t.id + "/extensions"}
+          initial={{ date: t.due_date, reason: "" }}
+          fields={[
+            { key: "date", label: "วันที่ขอส่ง", type: "date" },
+            { key: "reason", label: "เหตุผล", type: "textarea" },
+          ]}
+          onClose={() => setExtension(false)}
+          onSaved={reload}
+        />
       )}
       <div className="report-actions">
         {canAct &&

@@ -1,3 +1,6 @@
+import { canRead as sourceReadable } from "./access.js";
+import { manages } from "./access.js";
+import { draftWithAI } from "./ai-provider.js";
 import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -74,15 +77,14 @@ const narrativeSchema = z.object({
   problems: z.string().max(5000),
   next_steps: z.string().max(5000),
 });
-function canRead(user, row, snapshot) {
+function canRead(db, user, row, snapshot) {
   if (user.roles.includes("executive")) return true;
   return (
-    snapshot.rows.every(
-      (r) =>
-        (user.roles.includes("head") && user.scopes.includes(r.unit_id)) ||
-        (user.roles.includes("staff") && r.owner_id === user.id),
-    ) &&
-    (row.owner_id === user.id || user.roles.includes("head"))
+    snapshot.rows.every((r) => sourceReadable(db, user, r)) &&
+    (row.owner_id === user.id ||
+      user.roles.includes("head") ||
+      user.roles.includes("center_head") ||
+      user.delegated)
   );
 }
 export function registerDraftRoutes(app, db, dataDir) {
@@ -387,7 +389,7 @@ export function registerDraftRoutes(app, db, dataDir) {
       .get(Number(req.params.id));
     if (!row) throw httpError(404, "ไม่พบฉบับรายงาน");
     const snapshot = JSON.parse(row.snapshot_json);
-    if (!canRead(req.user, row, snapshot))
+    if (!canRead(db, req.user, row, snapshot))
       throw httpError(403, "ไม่มีสิทธิ์อ่านฉบับรายงานนี้");
     const changes = snapshot.rows
       .filter((r) => {
@@ -411,9 +413,14 @@ export function registerDraftRoutes(app, db, dataDir) {
     const rows = db
       .prepare("SELECT * FROM summary_drafts ORDER BY id DESC")
       .all()
-      .filter((r) => canRead(req.user, r, JSON.parse(r.snapshot_json)))
+      .filter((r) => canRead(db, req.user, r, JSON.parse(r.snapshot_json)))
       .map(({ snapshot_json, narrative_json, ...r }) => r);
     res.json({ items: rows });
+  });
+  app.post("/api/report-drafts/:id/ai-draft", async (req, res) => {
+    const d = readDraft(req);
+    if (!d.can_edit) throw httpError(403, "แก้ได้เฉพาะร่างของตน");
+    res.json(await draftWithAI(d.snapshot));
   });
   app.get("/api/report-drafts/:id", (req, res) => res.json(readDraft(req)));
   app.put("/api/report-drafts/:id", (req, res) => {

@@ -1,3 +1,8 @@
+import { hasDirectIdentifiers } from "./privacy.js";
+import { scanFile } from "./file-policy.js";
+import { createLineWorkflow } from "./line-workflow.js";
+import { scopeSettings } from "./scope-routes.js";
+import { assertRead } from "./access.js";
 import express from "express";
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
@@ -74,14 +79,25 @@ export function registerNewsRoutes(app, db) {
     if (old && input.version !== old.version)
       throw httpError(409, "ข่าวถูกแก้ไขแล้ว กรุณาโหลดใหม่");
     const a = db
-      .prepare("SELECT * FROM activities WHERE id=? AND status='ready'")
+      .prepare(
+        "SELECT * FROM activities WHERE id=? AND status='ready' AND duplicate_of IS NULL",
+      )
       .get(input.activity_id);
     if (!a) throw httpError(400, "กรุณาเลือกรายงานที่พร้อมสรุป");
+    assertRead(db, req.user, a);
     for (const id of input.image_ids) {
       const f = db
         .prepare("SELECT * FROM files WHERE id=? AND activity_id=?")
         .get(id, a.id);
-      if (!f || !f.mime.startsWith("image/"))
+      if (
+        !f ||
+        !f.mime.startsWith("image/") ||
+        db
+          .prepare(
+            "SELECT 1 FROM media_retention WHERE file_id=? AND state IN ('purging','purged')",
+          )
+          .get(id)
+      )
         throw httpError(400, "รูปภาพต้องเป็นหลักฐานจากรายงานต้นทาง");
     }
     if (input.cover_id && !input.image_ids.includes(input.cover_id))
@@ -115,6 +131,9 @@ export function registerNewsRoutes(app, db) {
               req.user.id,
             ).lastInsertRowid,
         );
+      db.prepare(
+        "UPDATE news_candidates SET state='in_review' WHERE activity_id=? AND state='requested'",
+      ).run(input.activity_id);
       const row = db.prepare("SELECT * FROM news WHERE id=?").get(id);
       writeAudit(db, req.user, "บันทึกฉบับร่างข่าว", "news", id, old, row);
       return row;
@@ -133,11 +152,30 @@ export function registerNewsRoutes(app, db) {
       throw httpError(409, "ข่าวถูกแก้ไขแล้ว กรุณาดู Preview ใหม่");
     const source = db
       .prepare(
-        "SELECT a.*,u.name AS unit_name FROM activities a JOIN units u ON u.id=a.unit_id WHERE a.id=? AND a.status='ready'",
+        "SELECT a.*,u.name AS unit_name FROM activities a JOIN units u ON u.id=a.unit_id WHERE a.id=? AND a.status='ready' AND a.duplicate_of IS NULL",
       )
       .get(row.activity_id);
     if (!source) throw httpError(400, "รายงานต้นทางยังไม่พร้อมสรุป");
+    if (req.body.privacy_reviewed !== true)
+      throw httpError(400, "กรุณาตรวจข้อมูลส่วนบุคคลในข้อความก่อนเผยแพร่");
+    if (hasDirectIdentifiers(row.title + "\n" + row.body))
+      throw httpError(
+        400,
+        "พบข้อมูลระบุตัวบุคคล กรุณาปิดข้อมูลในฉบับข่าวก่อนเผยแพร่",
+      );
+    if (JSON.parse(row.image_ids).length && req.body.images_reviewed !== true)
+      throw httpError(
+        400,
+        "กรุณายืนยันว่าตรวจสิทธิ์และความเหมาะสมของรูปภาพแล้ว",
+      );
     const out = transaction(db, () => {
+      for (const file of JSON.parse(row.image_ids))
+        db.prepare(
+          "INSERT INTO file_reviews(file_id,reviewed_by) VALUES(?,?) ON CONFLICT(file_id) DO UPDATE SET reviewed_by=excluded.reviewed_by,reviewed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+        ).run(file, req.user.id);
+      db.prepare(
+        "UPDATE news_candidates SET state='published' WHERE activity_id=?",
+      ).run(row.activity_id);
       db.prepare(
         "UPDATE news SET status='published',published_by=?,published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),version=version+1,activity_date=?,activity_area=?,publication_unit_id=?,publication_unit_name=? WHERE id=?",
       ).run(
@@ -214,15 +252,50 @@ export function registerNewsRoutes(app, db) {
   });
 }
 export function registerLineWebhook(app, db, dataDir) {
+  const processEvent = createLineWorkflow(db, dataDir, downloadLineMedia);
+  let chain = Promise.resolve();
+  const enqueue = (event) => {
+    chain = chain.then(async () => {
+      try {
+        await processEvent(event);
+        db.prepare(
+          "UPDATE line_events SET state='processed',payload=NULL,error=NULL WHERE event_id=?",
+        ).run(event.webhookEventId);
+      } catch (e) {
+        db.prepare(
+          "UPDATE line_events SET state='failed',error=? WHERE event_id=?",
+        ).run(String(e.message).slice(0, 1000), event.webhookEventId);
+      }
+    });
+  };
+  app.locals.waitLineJobs = () => chain;
+  app.locals.retryLineEvent = (id) => {
+    const r = db
+      .prepare(
+        "SELECT * FROM line_events WHERE event_id=? AND state='failed' AND payload IS NOT NULL",
+      )
+      .get(id);
+    if (!r) throw httpError(409, "ไม่พบรายการที่ลองใหม่ได้");
+    db.prepare(
+      "UPDATE line_events SET state='received',error=NULL WHERE event_id=?",
+    ).run(id);
+    enqueue(JSON.parse(r.payload));
+  };
+  app.locals.resumeLineJobs = () => {
+    for (const row of db
+      .prepare(
+        "SELECT * FROM line_events WHERE state='received' AND payload IS NOT NULL",
+      )
+      .all())
+      enqueue(JSON.parse(row.payload));
+  };
+
   app.post(
     "/api/line/webhook",
     express.raw({ type: "application/json", limit: "1mb" }),
     (req, res, next) => {
       try {
-        if (
-          !process.env.LINE_CHANNEL_SECRET ||
-          !process.env.LINE_REPORT_GROUP_ID
-        )
+        if (!process.env.LINE_CHANNEL_SECRET)
           throw httpError(503, "LINE is not configured");
         const received = Buffer.from(
             req.headers["x-line-signature"] || "",
@@ -240,6 +313,32 @@ export function registerLineWebhook(app, db, dataDir) {
         if (!Array.isArray(payload.events))
           throw httpError(400, "Invalid webhook payload");
         for (const event of payload.events) {
+          if (
+            (event.webhookEventId &&
+              event.source?.userId &&
+              ["follow", "unfollow", "postback"].includes(event.type)) ||
+            (event.webhookEventId &&
+              event.source?.userId &&
+              scopeSettings(db).line_reply_enabled) ||
+            (event.webhookEventId &&
+              event.source?.userId &&
+              event.source?.type === "user" &&
+              /^ผูกบัญชี\s+/i.test(event.message?.text || ""))
+          ) {
+            const inserted = db
+              .prepare(
+                "INSERT OR IGNORE INTO line_events(event_id,payload) VALUES(?,?)",
+              )
+              .run(event.webhookEventId, JSON.stringify(event));
+            if (inserted.changes) enqueue(event);
+            if (
+              event.type !== "message" ||
+              event.source.type === "user" ||
+              scopeSettings(db).line_reply_enabled
+            )
+              continue;
+          }
+
           if (
             event.type !== "message" ||
             event.source?.groupId !== process.env.LINE_REPORT_GROUP_ID ||
@@ -353,10 +452,12 @@ export async function downloadLineMedia(db, dataDir, row, user) {
       "image/png",
       "image/webp",
       "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ].includes(type.mime)
   )
     throw httpError(415, "ไม่รองรับไฟล์นี้");
+  await scanFile(buffer);
   const name = `${randomUUID()}.${type.ext}`;
   await writeFile(resolve(dataDir, "uploads", name), buffer, { mode: 0o600 });
   try {

@@ -210,10 +210,10 @@ describe("Real dashboard periods, duplicate decisions and calendar", () => {
       0,
     );
   });
-  it("reads shared calendar only from actual activity dates and retains undated sources", async () => {
+  it("reads role-scoped calendar only from actual activity dates and retains undated sources", async () => {
     const r = await request("/calendar?from=2026-10-01&to=2026-10-31");
     assert.equal(r.status, 200);
-    assert.equal(r.data.items.length, 4);
+    assert.equal(r.data.items.length, 3);
     assert.ok(!r.data.items.some((r) => r.id === ids.pending));
     assert.equal(
       (await request("/calendar?from=2026-10-01&to=2026-10-31&mine=1")).data

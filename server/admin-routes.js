@@ -91,6 +91,40 @@ export function registerAdminRoutes(app, db) {
             )
             .run(...values).lastInsertRowid,
         );
+      for (const work of input.work_scopes)
+        if (
+          !db
+            .prepare(
+              "SELECT id FROM works WHERE id=? AND unit_id=? AND active=1",
+            )
+            .get(work, input.unit_id)
+        )
+          throw httpError(400, "ขอบเขตศูนย์ไม่อยู่ในสังกัด");
+      db.prepare(
+        "UPDATE users SET work_scopes=?,personnel_type=?,position=? WHERE id=?",
+      ).run(
+        JSON.stringify(
+          input.roles.includes("center_head") ? input.work_scopes : [],
+        ),
+        input.personnel_type,
+        input.position,
+        id,
+      );
+      if (
+        !old ||
+        old.unit_id !== input.unit_id ||
+        old.work_id !== input.work_id ||
+        old.roles !== JSON.stringify(input.roles)
+      )
+        db.prepare(
+          "INSERT INTO personnel_history(user_id,unit_id,work_id,roles,effective_at,recorded_by) VALUES(?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?)",
+        ).run(
+          id,
+          input.unit_id,
+          input.work_id,
+          JSON.stringify(input.roles),
+          req.user.id,
+        );
       if (input.line_user_id)
         db.prepare(
           "UPDATE inbox SET owner_id=? WHERE line_user_id=? AND owner_id IS NULL",
@@ -151,6 +185,30 @@ export function registerAdminRoutes(app, db) {
       page,
       limit,
     });
+  });
+  app.get("/api/admin/line-events", (req, res) =>
+    res.json({
+      items: db
+        .prepare(
+          "SELECT event_id,state,error,created_at FROM line_events ORDER BY created_at DESC LIMIT 100",
+        )
+        .all(),
+    }),
+  );
+  app.post("/api/admin/line-events/retry", (req, res) => {
+    if (typeof req.body.event_id !== "string" || req.body.event_id.length > 200)
+      throw httpError(400, "รหัสเหตุการณ์ไม่ถูกต้อง");
+    app.locals.retryLineEvent(req.body.event_id);
+    writeAudit(
+      db,
+      req.user,
+      "ลองประมวลผล LINE ใหม่",
+      "line_event",
+      null,
+      null,
+      { event_id: req.body.event_id },
+    );
+    res.json({ queued: true });
   });
   app.get("/api/admin/line", (req, res) =>
     res.json({

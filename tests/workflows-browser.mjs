@@ -70,7 +70,7 @@ try {
       .click();
     await page
       .getByRole("heading", {
-        name: username === "head" ? "แดชบอร์ดหน่วยงาน" : "ข้อมูลที่ฉันนำเข้า",
+        name: username === "head" ? "แดชบอร์ดหน่วยงาน" : "รายงานของฉัน",
         exact: true,
       })
       .waitFor();

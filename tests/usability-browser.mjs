@@ -69,10 +69,8 @@ try {
   await p.getByLabel("ชื่อผู้ใช้", { exact: true }).fill("staff");
   await p.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await p.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
-  await p
-    .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
-    .waitFor();
-  assert.equal(await p.locator(".sidebar nav button").count(), 6);
+  await p.getByRole("heading", { name: "รายงานของฉัน", exact: true }).waitFor();
+  assert.equal(await p.locator(".sidebar nav button").count(), 7);
   assert.equal(
     await p
       .locator(".sidebar nav")

@@ -67,3 +67,22 @@ Errors: `{ "error": "ข้อความไทย", "details": ["รายล�
 `units.kind` คือ `section`, `division` หรือ `group`; `parent_id` ของฝ่าย/กลุ่มงานอ้างอิงส่วน งานมี `unit_id` อ้างอิงฝ่าย/กลุ่มงาน และ `parent_id` อ้างอิงงานแม่ในฝ่ายเดียวกัน ระบบปฏิเสธโครงสร้างวนซ้ำและการย้ายฝ่ายของงานที่มีบัญชี ไฟล์ รายงาน หรืองานย่อยอ้างอิงแล้ว
 
 ประเภทงานที่เพิ่มผ่าน `/categories` จะเปิดใช้งานเสมอ การแก้ชื่อ/ปิดใช้ต้องใช้ endpoint ผู้ดูแลระบบ ชื่อถูกตัดช่องว่างหัวท้ายและยุบช่องว่างซ้ำ ระบบตอบ 409 หากชื่อซ้ำ (รวมตัวอักษรอังกฤษต่างตัวพิมพ์)
+
+## ส่วนที่เพิ่มตาม PDF ระยะ 1–3
+
+ดู [ตารางขอบเขตและสิทธิ์](SCOPE-IMPLEMENTATION.md) เป็นข้อกำหนดล่าสุด เปลี่ยนอ่านร่วมกันเป็น role scope แล้ว API รายการ รายละเอียด ไฟล์และการส่งออกใช้ขอบเขตเดียวกัน
+
+- `/auth/line/status`, `/auth/line/start`, `/auth/line/callback`, `/auth/line/registration`, `/auth/line/register`: OAuth/PKCE และลงทะเบียนสั้น
+- `/me/line-code`, `/me/transfer`, `/role-requests`, `/role-requests/:id/resolve`: ผูกบัญชีและรับรองตำแหน่ง/สังกัด
+- `/activities/:id/team`, `/activities/:id/team/confirm`, `/activities/:id/owner-confirm`: ผู้ร่วมงาน ฝ่ายร่วม และการยืนยันก่อนสรุปบุคคล
+- `/period-locks`, `/activities/:id/amendments`, `/amendments/:id/resolve`, `/delegations`: ปิดรอบ ขอแก้ และรักษาการ
+- `/news-candidates`, `/activities/:id/news-candidate`, `/activities/:id/news-preview`: คิวข่าวและข้อความที่ช่วยปิดตัวระบุ; เผยแพร่ต้อง `privacy_reviewed: true` และ `images_reviewed: true` เมื่อมีภาพ
+- `/scope/settings`, `/preferences`, `/notifications`, `/scope/jobs/run`, `/scheduled-summaries`: ค่ากลางและงานตามรอบ
+- `/tasks/:id/update`, `/tasks/:id/extensions`, `/task-extensions/:id/resolve`: ติดตามและขอเลื่อน
+- `/workflow-proposals/analyze`, `/workflow-proposals/:id/confirm`, `/events`: ข้อเสนอที่ต้องยืนยันก่อนสร้างงาน/นัดหมาย
+- `/plans`, `/projects/:id/plan`, `/projects/:id/expenses`, `/projects/:id/budget`: แผนและงบจริงพร้อมอ้างอิง
+- `/communities`, `/community-targets`, `/activities/:id/community`, `/coverage`: ชุมชน แผนพื้นที่ และรายงานตามสิทธิ์
+- `/hr-templates`, `/hr-exports`, `/hr-exports/:id/word`, `/scheduled-summaries/:id/word`: แบบบุคลากร ฉบับและ Word
+- `/file-policy/status`, `/retention/preview`, `/retention/run`, `/admin/line-events`: ตรวจสถานะการเชื่อมต่อ อายุเก็บ และงาน LINE ที่ยังไม่สำเร็จ
+
+ทุกคำขอเปลี่ยนข้อมูลบนเว็บใช้ session/Origin/CSRF เดิม ยกเว้น OAuth ลงทะเบียนใหม่ที่ใช้ token สุ่มอายุสั้นจาก LINE ที่ตรวจแล้ว และ webhook ที่ใช้ HMAC การตอบสำเร็จของ webhook หมายถึงรับเข้าคิว ไม่ใช่ประมวลผลเสร็จ

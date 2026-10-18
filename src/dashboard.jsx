@@ -62,7 +62,9 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
     mode === "mine"
       ? "mine"
       : mode === "unit" &&
-          user.roles.includes("head") &&
+          (user.roles.includes("head") ||
+            user.roles.includes("center_head") ||
+            user.delegated) &&
           (!unit || user.scopes.includes(Number(unit)))
         ? "unit"
         : mode === "overview" && user.roles.includes("executive")
@@ -73,7 +75,7 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
       <Heading
         title={
           mode === "mine"
-            ? "ข้อมูลที่ฉันนำเข้า"
+            ? "รายงานของฉัน"
             : mode === "unit"
               ? "แดชบอร์ดหน่วยงาน"
               : "ภาพรวมสำนัก"
@@ -94,19 +96,30 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
         aria-label="มุมมองแดชบอร์ด"
       >
         {[
-          ["mine", "ข้อมูลที่ฉันนำเข้า"],
+          ["mine", "รายงานของฉัน"],
           ["unit", "ข้อมูลหน่วยงาน"],
           ["overview", "ภาพรวมสำนัก"],
-        ].map(([k, label]) => (
-          <button
-            key={k}
-            className={mode === k ? "active" : ""}
-            aria-current={mode === k ? "page" : undefined}
-            onClick={() => navigate("dashboard/" + k)}
-          >
-            {label}
-          </button>
-        ))}
+        ]
+          .filter(
+            ([k]) =>
+              k === "mine" ||
+              (k === "unit" &&
+                (user.delegated ||
+                  user.roles.some((r) =>
+                    ["head", "center_head"].includes(r),
+                  ))) ||
+              (k === "overview" && user.roles.includes("executive")),
+          )
+          .map(([k, label]) => (
+            <button
+              key={k}
+              className={mode === k ? "active" : ""}
+              aria-current={mode === k ? "page" : undefined}
+              onClick={() => navigate("dashboard/" + k)}
+            >
+              {label}
+            </button>
+          ))}
       </div>
       {tab === "summary" && (
         <section className="period-toolbar panel" aria-label="ตัวกรองแดชบอร์ด">
@@ -156,7 +169,13 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
               <select value={unit} onChange={(e) => setUnit(e.target.value)}>
                 <option value="">ทุกหน่วยงาน</option>
                 {meta.units
-                  .filter((u) => u.kind !== "section")
+                  .filter(
+                    (u) =>
+                      u.kind !== "section" &&
+                      (user.roles.includes("executive") ||
+                        user.scopes.includes(u.id) ||
+                        u.id === user.unit_id),
+                  )
                   .map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name}
@@ -209,6 +228,44 @@ export default function Dashboard({ mode, user, meta, navigate, canWrite }) {
           <DataState resource={resource}>
             {(d) => (
               <>
+                {d.previous && (
+                  <section className="panel period-comparison">
+                    <h2>เทียบรอบก่อนหน้า</h2>
+                    <p>
+                      กิจกรรมยืนยัน {number(d.previous.ready)} →{" "}
+                      {number(d.ready)} กิจกรรม (
+                      {d.ready - d.previous.ready >= 0 ? "+" : ""}
+                      {number(d.ready - d.previous.ready)})
+                    </p>
+                    <small>
+                      {dateText(d.previous.range.from)}–
+                      {dateText(d.previous.range.to)} เทียบกับรอบที่เลือก ·
+                      ตัวเลขต่างชนิดและหน่วยแสดงแยกกัน
+                    </small>
+                    {d.metrics.map((m) => {
+                      const old = d.previous.metrics.find(
+                        (x) =>
+                          x.label === m.label &&
+                          x.unit === m.unit &&
+                          x.method === m.method,
+                      );
+                      return (
+                        <p key={m.label + ":" + m.unit}>
+                          {m.label}:{" "}
+                          {old ? number(old.value) : "ไม่มีข้อมูลรอบก่อน"} →{" "}
+                          {number(m.value)} {m.unit}
+                        </p>
+                      );
+                    })}
+                    <Button
+                      onClick={() =>
+                        drill({ ...d.previous.range, status: "ready" })
+                      }
+                    >
+                      ดูรายงานรอบก่อน
+                    </Button>
+                  </section>
+                )}
                 <div className="stats concise-stats">
                   <button
                     className="stat featured"

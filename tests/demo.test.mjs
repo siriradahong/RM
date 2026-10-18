@@ -118,7 +118,7 @@ test("demo dataset preserves existing data, loads real assets, covers roles and 
       assert.equal((await get("/meta")).demo.activityCount, 18);
       assert.equal(
         (await get("/dashboard?from=2026-10-01&to=2026-10-03")).ready,
-        9,
+        { staff: 1, head: 9, executive: 9, pr: 6, admin: 0 }[role],
       );
       assert.equal((await get("/news?feed=1")).total, 4);
       if (role === "pr")
@@ -128,8 +128,13 @@ test("demo dataset preserves existing data, loads real assets, covers roles and 
         assert.equal((await get("/admin/users")).length, 14);
       }
       if (role === "staff") assert.ok(auth.user.work_id);
+      const visibleFiles = (await get("/files?limit=100")).items;
+      assert.ok(
+        visibleFiles.length > 0,
+        role + " has permitted originals or published images",
+      );
       const f = await fetch(
-        base + "/files/" + result.manifest.fileIds[0] + "/content",
+        base + "/files/" + visibleFiles[0].id + "/content",
         { headers: { Cookie: cookie } },
       );
       assert.equal(f.status, 200);

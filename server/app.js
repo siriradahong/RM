@@ -1,3 +1,17 @@
+import { registerProposalRoutes } from "./proposals.js";
+import { registerScopeExports } from "./scope-exports.js";
+import { registerFilePolicy } from "./file-policy.js";
+import {
+  registerLineLogin,
+  registerLineAccountRoutes,
+  lineLoginReady,
+} from "./line-auth.js";
+import { registerPlanningRoutes } from "./planning-routes.js";
+import { registerJobRoutes } from "./jobs.js";
+import { aiStatus } from "./ai-provider.js";
+import { registerScopeRoutes } from "./scope-routes.js";
+import { registerNewsQueue } from "./news-queue.js";
+import { effectiveUser } from "./access.js";
 import { registerInsightRoutes } from "./insight-routes.js";
 import { registerDraftRoutes } from "./draft-routes.js";
 import { registerExtractionRoutes } from "./extraction-routes.js";
@@ -99,7 +113,7 @@ export function createApp(options = {}) {
           .prepare("SELECT * FROM users WHERE id=? AND active=1")
           .get(session.user_id);
         if (u) {
-          req.user = publicUser(u);
+          req.user = effectiveUser(db, publicUser(u));
           req.session = session;
         }
       }
@@ -113,6 +127,7 @@ export function createApp(options = {}) {
     path: "/api",
     maxAge: 8 * 60 * 60 * 1000,
   };
+  registerLineLogin(app, db, cookieOptions);
   app.post("/api/auth/login", async (req, res) => {
     const input = loginSchema.parse(req.body);
     const key = digest(input.username.toLowerCase());
@@ -221,7 +236,7 @@ export function createApp(options = {}) {
           )
           .get().count,
       },
-      ai: { configured: false },
+      ai: aiStatus(),
       line: {
         receiveConfigured: Boolean(
           process.env.LINE_CHANNEL_SECRET && process.env.LINE_REPORT_GROUP_ID,
@@ -241,6 +256,14 @@ export function createApp(options = {}) {
   registerInsightRoutes(app, db);
   registerAdminRoutes(app, db);
   registerNewsRoutes(app, db);
+  registerNewsQueue(app, db);
+  registerScopeRoutes(app, db);
+  registerPlanningRoutes(app, db);
+  registerLineAccountRoutes(app, db);
+  registerJobRoutes(app, db, dataDir);
+  registerFilePolicy(app, db, dataDir);
+  registerScopeExports(app, db);
+  registerProposalRoutes(app, db);
   app.use("/api", (req, res) =>
     res.status(404).json({ error: "ไม่พบ API ที่เรียกใช้" }),
   );

@@ -1,18 +1,7 @@
 import React, { useState } from "react";
 import { api } from "./api";
 import { Button, Field, DataState, useData, Dialog } from "./workspace-ui";
-const units = [
-  "คน",
-  "ราย",
-  "ครั้ง",
-  "ครั้งบริการ",
-  "เที่ยว",
-  "ตัน",
-  "กิโลกรัม",
-  "แห่ง",
-  "กิจกรรม",
-  "หลังคาเรือน",
-];
+import { metricUnits as units } from "../shared/metric-units";
 export default function TemplatesAdmin({ meta }) {
   const r = useData("/admin/summary-templates"),
     [form, setForm] = useState(null),

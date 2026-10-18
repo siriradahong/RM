@@ -104,6 +104,20 @@ process.on("message", async ({ files, modelDir, includeImages }) => {
           } finally {
             await task.destroy();
           }
+        } else if (f.mime.includes("wordprocessingml")) {
+          const { readWord } = await import("./word-text.js");
+          const text = readWord(b);
+          parts.push({
+            file_id: f.id,
+            title: f.title,
+            page: 1,
+            method: "docx",
+            text: text.slice(0, 20000),
+          });
+          if (text.length > 20000)
+            warnings.push(
+              `${f.title}: อ่านเฉพาะข้อความ 20,000 ตัวอักษรแรก กรุณาแบ่งไฟล์`,
+            );
         } else if (f.mime.includes("spreadsheetml")) {
           const ExcelJS = (await import("exceljs")).default,
             book = new ExcelJS.Workbook();

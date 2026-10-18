@@ -1,3 +1,4 @@
+import { metricUnits } from "../shared/metric-units.js";
 import { z } from "zod";
 import { ROLES } from "./db.js";
 const optionalText = (max = 2000) => z.string().trim().max(max).default("");
@@ -13,6 +14,8 @@ const date = z
   }, "วันที่ไม่ถูกต้อง");
 export const activitySchema = z
   .object({
+    news_requested: z.boolean().default(false),
+    brief: z.boolean().default(false),
     source_text: z.string().max(20000).default(""),
     intake: z.boolean().default(false),
     intake_key: z.string().uuid().nullish(),
@@ -29,18 +32,7 @@ export const activitySchema = z
         z.object({
           label: z.string().trim().min(1).max(100),
           value: z.number().finite().min(0).max(1e12),
-          unit: z.enum([
-            "กิจกรรม",
-            "ครั้ง",
-            "ครั้งบริการ",
-            "เที่ยว",
-            "คน",
-            "ราย",
-            "ตัน",
-            "หลังคาเรือน",
-            "แห่ง",
-            "กิโลกรัม",
-          ]),
+          unit: z.enum(metricUnits),
         }),
       )
       .max(20)
@@ -73,9 +65,12 @@ export const userSchema = z
     roles: z
       .array(z.enum(Object.keys(ROLES)))
       .min(1)
-      .max(5)
+      .max(6)
       .transform((v) => [...new Set(v)]),
     scopes: z.array(id).max(100).default([]),
+    work_scopes: z.array(id).max(100).default([]),
+    personnel_type: optionalText(100),
+    position: optionalText(200),
     active: z.boolean().default(true),
     line_user_id: z
       .string()
@@ -89,6 +84,15 @@ export const userSchema = z
         code: "custom",
         path: ["scopes"],
         message: "หัวหน้าฝ่ายต้องมีหน่วยงานที่รับผิดชอบ",
+      });
+    if (
+      v.roles.includes("center_head") &&
+      (!v.unit_id || !v.work_scopes.length)
+    )
+      c.addIssue({
+        code: "custom",
+        path: ["work_scopes"],
+        message: "หัวหน้าศูนย์ต้องมีศูนย์หรืองานที่รับผิดชอบ",
       });
     if (v.roles.includes("staff") && !v.unit_id)
       c.addIssue({

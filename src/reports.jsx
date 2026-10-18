@@ -15,7 +15,9 @@ export default function Reports({ user, meta, navigate }) {
   const [filters, setFilters] = useState({
     scope: user.roles.includes("executive")
       ? "all"
-      : user.roles.includes("head")
+      : user.roles.includes("head") ||
+          user.roles.includes("center_head") ||
+          user.delegated
         ? "unit"
         : "mine",
     period: "month",
@@ -44,7 +46,9 @@ export default function Reports({ user, meta, navigate }) {
   const units = meta.units.filter(
     (u) =>
       u.kind !== "section" &&
-      (filters.scope !== "unit" || user.scopes.includes(u.id)),
+      (filters.scope !== "unit" ||
+        user.scopes.includes(u.id) ||
+        (user.roles.includes("center_head") && user.unit_id === u.id)),
   );
   return (
     <div className="report-page">
@@ -87,8 +91,10 @@ export default function Reports({ user, meta, navigate }) {
             value={filters.scope}
             onChange={(e) => change("scope", e.target.value)}
           >
-            <option value="mine">ข้อมูลที่ฉันนำเข้า</option>
-            {user.roles.includes("head") && (
+            <option value="mine">รายงานของฉัน</option>
+            {(user.roles.includes("head") ||
+              user.roles.includes("center_head") ||
+              user.delegated) && (
               <option value="unit">หน่วยงานที่รับผิดชอบ</option>
             )}
             {user.roles.includes("executive") && (

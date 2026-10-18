@@ -1,3 +1,12 @@
+import { scanFile } from "./file-policy.js";
+import {
+  contentScope,
+  fileScope,
+  assertRead,
+  assertFileRead,
+  assertUnlocked,
+  lockFor,
+} from "./access.js";
 import { aggregateMetrics } from "./analytics.js";
 import { reportPeriod } from "../shared/report-period.js";
 import multer from "multer";
@@ -27,6 +36,7 @@ const upload = multer({
 });
 const allowed = new Set([
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/jpeg",
   "image/png",
   "image/webp",
@@ -50,21 +60,53 @@ export function activity(db, row, user) {
     ...row,
     metrics: JSON.parse(row.metrics),
     intake: Boolean(row.intake),
+    news_requested: Boolean(row.news_requested),
+    brief: Boolean(row.brief),
     locked_by_project: locked,
+    period_lock: lockFor(db, row),
+    amendment_allowed: !!db
+      .prepare(
+        "SELECT 1 FROM amendment_grants WHERE activity_id=? AND user_id=? AND expires_at>?",
+      )
+      .get(row.id, user.id, new Date().toISOString()),
     can_edit: !locked && canEdit(user, row),
   };
 }
-const selectActivity = `SELECT a.*,u.name AS unit_name,c.name AS category_name,o.name AS owner_name,w.name AS work_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id LEFT JOIN works w ON w.id=a.work_id`;
+const selectActivity = `SELECT a.*,COALESCE(a.unit_label,u.name) AS unit_name,c.name AS category_name,o.name AS owner_name,COALESCE(a.work_label,w.name) AS work_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id LEFT JOIN works w ON w.id=a.work_id`;
 function whereFor(req, alias = "a") {
-  const clauses = [],
-    params = [];
+  const scope = contentScope(req.user, alias);
+  const clauses = [scope.sql],
+    params = [...scope.params];
   const add = (sql, v) => {
     clauses.push(sql);
     params.push(v);
   };
+  if (req.query.community)
+    add(`${alias}.community_id=?`, Number(req.query.community));
+  if (["image", "file", "none"].includes(req.query.attachments)) {
+    const condition =
+      req.query.attachments === "image"
+        ? " AND f.mime LIKE 'image/%'"
+        : req.query.attachments === "file"
+          ? " AND f.mime NOT LIKE 'image/%'"
+          : "";
+    clauses.push(
+      `${req.query.attachments === "none" ? "NOT " : ""}EXISTS(SELECT 1 FROM files f WHERE f.activity_id=${alias}.id${condition})`,
+    );
+  }
   if (req.query.work) add(`${alias}.work_id=?`, Number(req.query.work));
-  if (req.query.unit) add(`${alias}.unit_id=?`, Number(req.query.unit));
-  if (req.query.mine === "1") add(`${alias}.owner_id=?`, req.user.id);
+  if (req.query.unit) {
+    clauses.push(
+      `(${alias}.unit_id=? OR EXISTS(SELECT 1 FROM activity_units au WHERE au.activity_id=${alias}.id AND au.unit_id=?))`,
+    );
+    params.push(Number(req.query.unit), Number(req.query.unit));
+  }
+  if (req.query.mine === "1") {
+    clauses.push(
+      `(${alias}.owner_id=? OR EXISTS(SELECT 1 FROM activity_people ap WHERE ap.activity_id=${alias}.id AND ap.user_id=? AND ap.confirmed_at IS NOT NULL))`,
+    );
+    params.push(req.user.id, req.user.id);
+  }
   if (req.query.from)
     add(
       `COALESCE(${alias}.date,substr(${alias}.created_at,1,10))>=?`,
@@ -169,6 +211,7 @@ export function registerDataRoutes(app, db, dataDir) {
       .prepare(`${selectActivity} WHERE a.id=?`)
       .get(Number(req.params.id));
     if (!r) throw httpError(404, "ไม่พบรายการงาน");
+    assertRead(db, req.user, r, { audit: true });
     res.json({
       ...activity(db, r, req.user),
       extraction: (() => {
@@ -179,9 +222,13 @@ export function registerDataRoutes(app, db, dataDir) {
           .get(r.id);
         return e ? JSON.parse(e.result_json) : null;
       })(),
+      news_candidate:
+        db
+          .prepare("SELECT state,note FROM news_candidates WHERE activity_id=?")
+          .get(r.id) || null,
       files: db
         .prepare(
-          "SELECT id,title,original_name,mime,size,created_at FROM files WHERE activity_id=?",
+          "SELECT f.id,f.title,f.original_name,f.mime,f.size,f.created_at,EXISTS(SELECT 1 FROM media_retention mr WHERE mr.file_id=f.id AND mr.state IN ('purging','purged')) purged FROM files f WHERE f.activity_id=?",
         )
         .all(r.id),
       messages: db
@@ -225,6 +272,7 @@ export function registerDataRoutes(app, db, dataDir) {
       input.result = "";
     }
 
+    if (record) assertUnlocked(db, req.user, record);
     if (record && !Object.hasOwn(req.body, "work_id"))
       input.work_id = record.work_id;
     if (
@@ -294,6 +342,12 @@ export function registerDataRoutes(app, db, dataDir) {
         400,
         "กรุณาเลือกงานที่อยู่ในฝ่าย/กลุ่มงานที่เลือกและเปิดใช้งาน",
       );
+    if (input.status === "ready")
+      assertUnlocked(db, req.user, {
+        ...record,
+        ...input,
+        id: record?.id || 0,
+      });
     const files = input.file_ids.map((id) =>
       db.prepare("SELECT * FROM files WHERE id=?").get(id),
     );
@@ -302,6 +356,11 @@ export function registerDataRoutes(app, db, dataDir) {
         (f) =>
           !f ||
           f.purpose !== "evidence" ||
+          db
+            .prepare(
+              "SELECT 1 FROM media_retention WHERE file_id=? AND state IN ('purging','purged')",
+            )
+            .get(f.id) ||
           (f.activity_id && f.activity_id !== record?.id) ||
           (!record && f.owner_id !== req.user.id) ||
           !canEdit(req.user, f),
@@ -359,6 +418,19 @@ export function registerDataRoutes(app, db, dataDir) {
           "UPDATE activities SET source_text=?,intake=1,intake_key=? WHERE id=?",
         ).run(input.source_text, input.intake_key || null, recordId);
       }
+      db.prepare(
+        "UPDATE activities SET news_requested=?,brief=? WHERE id=?",
+      ).run(input.news_requested ? 1 : 0, input.brief ? 1 : 0, recordId);
+      db.prepare("UPDATE activities SET owner_confirmed_at=? WHERE id=?").run(
+        input.status === "ready" && (!record || record.owner_id === req.user.id)
+          ? new Date().toISOString()
+          : null,
+        recordId,
+      );
+      if (input.news_requested && input.status === "ready")
+        db.prepare(
+          "INSERT OR IGNORE INTO news_candidates(activity_id,requested_by) VALUES(?,?)",
+        ).run(recordId, req.user.id);
       for (const f of files)
         db.prepare("UPDATE files SET activity_id=? WHERE id=?").run(
           recordId,
@@ -402,6 +474,18 @@ export function registerDataRoutes(app, db, dataDir) {
         .get(reportId);
       const file = db.prepare("SELECT * FROM files WHERE id=?").get(fileId);
       if (!report || !file) throw httpError(404, "ไม่พบรายงานหรือไฟล์");
+      if (
+        db
+          .prepare(
+            "SELECT 1 FROM media_retention WHERE file_id=? AND state IN ('purging','purged')",
+          )
+          .get(file.id)
+      )
+        throw httpError(
+          410,
+          "ไฟล์นี้ครบอายุเก็บแล้ว ใช้แนบเป็นหลักฐานใหม่ไม่ได้",
+        );
+      assertUnlocked(db, req.user, report);
       if (!canEdit(req.user, report) || !canEdit(req.user, file))
         throw httpError(403, "ไม่มีสิทธิ์แนบไฟล์นี้");
       if (file.activity_id === reportId) return { report, file, already: true };
@@ -507,6 +591,24 @@ export function registerDataRoutes(app, db, dataDir) {
         throw httpError(400, e.message);
       }
     }
+    let previous = null;
+    if (effective.query.previous) {
+      const prior = whereFor({
+        user: req.user,
+        query: { ...effective.query, ...effective.query.previous },
+      });
+      const rows = db
+        .prepare(`${selectActivity}${prior.where}`)
+        .all(...prior.params);
+      const ready = rows.filter((r) => r.status === "ready" && !r.duplicate_of);
+      previous = {
+        range: effective.query.previous,
+        ready: ready.length,
+        pending: rows.filter((r) => r.status === "pending" && !r.duplicate_of)
+          .length,
+        metrics: aggregateMetrics(db, ready),
+      };
+    }
     const { where, params } = whereFor(effective);
     const rows = db.prepare(`${selectActivity}${where}`).all(...params);
     const ready = rows.filter((r) => r.status === "ready" && !r.duplicate_of),
@@ -523,8 +625,9 @@ export function registerDataRoutes(app, db, dataDir) {
       const month = r.date.slice(0, 7);
       months.set(month, (months.get(month) || 0) + 1);
     }
-    let fileWhere = " WHERE purpose='archive'",
-      fileParams = [];
+    const fs = fileScope(req.user);
+    let fileWhere = " WHERE purpose='archive' AND " + fs.sql,
+      fileParams = [...fs.params];
     if (req.query.unit) {
       fileWhere += " AND unit_id=?";
       fileParams.push(Number(req.query.unit));
@@ -543,12 +646,13 @@ export function registerDataRoutes(app, db, dataDir) {
     }
     res.json({
       ready: ready.length,
+      previous,
       pending: pending.length,
       range: effective.query.from
         ? { from: effective.query.from, to: effective.query.to }
         : null,
       archives: db
-        .prepare(`SELECT COUNT(*) AS count FROM files${fileWhere}`)
+        .prepare(`SELECT COUNT(*) AS count FROM files f${fileWhere}`)
         .get(...fileParams).count,
       duplicates: rows.filter((r) => r.duplicate_of).length,
       metrics: aggregateMetrics(db, ready),
@@ -567,7 +671,11 @@ export function registerDataRoutes(app, db, dataDir) {
   app.post(
     "/api/files",
     (req, res, next) => {
-      if (!req.user.roles.some((r) => ["staff", "head"].includes(r)))
+      if (
+        !req.user.roles.some((r) =>
+          ["staff", "head", "center_head"].includes(r),
+        )
+      )
         return next(httpError(403, "ไม่มีสิทธิ์นำเข้าไฟล์"));
       next();
     },
@@ -629,7 +737,10 @@ export function registerDataRoutes(app, db, dataDir) {
         throw httpError(415, "ไฟล์ไม่สมบูรณ์หรือไม่รองรับ");
       }
       if (!detected || (!textOnly && !allowed.has(detected.mime)))
-        throw httpError(415, "รองรับ PDF, Excel, JPG, PNG และ WebP เท่านั้น");
+        throw httpError(
+          415,
+          "รองรับ PDF, Word (.docx), Excel, JPG, PNG และ WebP เท่านั้น",
+        );
       if (
         detected.mime === "application/x-cfb" &&
         !req.file.originalname.toLowerCase().endsWith(".xls")
@@ -639,6 +750,7 @@ export function registerDataRoutes(app, db, dataDir) {
         detected.mime === "application/x-cfb"
           ? "application/vnd.ms-excel"
           : detected.mime;
+      await scanFile(req.file.buffer);
       const storage = `${randomUUID()}.${detected.ext}`,
         original = Buffer.from(req.file.originalname, "latin1")
           .toString("utf8")
@@ -689,8 +801,9 @@ export function registerDataRoutes(app, db, dataDir) {
     },
   );
   app.get("/api/files", (req, res) => {
-    const conditions = [],
-      params = [];
+    const scope = fileScope(req.user);
+    const conditions = [scope.sql],
+      params = [...scope.params];
     for (const [q, col] of [
       ["unit", "f.unit_id"],
       ["work", "f.work_id"],
@@ -746,7 +859,7 @@ export function registerDataRoutes(app, db, dataDir) {
       limit,
       items: db
         .prepare(
-          `SELECT f.id,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.description,f.activity_id,f.unit_id,f.work_id,f.owner_id,f.created_at,u.name AS unit_name,w.name AS work_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id LEFT JOIN works w ON w.id=f.work_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
+          `SELECT f.id,EXISTS(SELECT 1 FROM media_retention mr WHERE mr.file_id=f.id AND mr.state IN ('purging','purged')) purged,f.original_name,f.title,f.mime,f.size,f.purpose,f.keywords,f.description,f.activity_id,f.unit_id,f.work_id,f.owner_id,f.created_at,u.name AS unit_name,w.name AS work_name,o.name AS owner_name FROM files f JOIN units u ON u.id=f.unit_id LEFT JOIN works w ON w.id=f.work_id JOIN users o ON o.id=f.owner_id${where} ORDER BY f.id DESC LIMIT ? OFFSET ?`,
         )
         .all(...params, limit, (page - 1) * limit),
     });
@@ -756,6 +869,18 @@ export function registerDataRoutes(app, db, dataDir) {
       .prepare("SELECT * FROM files WHERE id=?")
       .get(Number(req.params.id));
     if (!f) throw httpError(404, "ไม่พบไฟล์");
+    assertFileRead(db, req.user, f.id);
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM media_retention WHERE file_id=? AND state IN ('purging','purged')",
+        )
+        .get(f.id)
+    )
+      throw httpError(
+        410,
+        "ไฟล์นี้ครบอายุเก็บแล้ว เหลือเฉพาะประวัติการจัดเก็บ",
+      );
     res.set("Content-Type", f.mime);
     res.set(
       "Content-Disposition",
@@ -765,11 +890,16 @@ export function registerDataRoutes(app, db, dataDir) {
   });
   app.get("/api/inbox", (req, res) => {
     const { page, limit } = pagination(req);
-    const rows = db
+    let rows = db
       .prepare(
         "SELECT i.*,u.name AS owner_name,u.unit_id,u.work_id FROM inbox i LEFT JOIN users u ON u.id=i.owner_id WHERE i.activity_id IS NULL ORDER BY i.id DESC",
       )
       .all();
+    rows = rows.filter(
+      (r) =>
+        req.user.roles.includes("executive") ||
+        (r.owner_id && (r.owner_id === req.user.id || canEdit(req.user, r))),
+    );
     res.json({
       items: rows
         .slice((page - 1) * limit, page * limit)

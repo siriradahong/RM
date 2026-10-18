@@ -208,6 +208,12 @@ try {
   await page
     .getByRole("checkbox", { name: "เจ้าหน้าที่ปฏิบัติงาน", exact: true })
     .check();
+  await page
+    .getByRole("checkbox", {
+      name: "ฝ่ายปฏิบัติงานต่างจากฝ่ายที่ดูแล",
+      exact: true,
+    })
+    .check();
   await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
   await page
     .getByLabel("งานที่รับผิดชอบ *", { exact: true })
@@ -310,7 +316,7 @@ try {
   await page.getByText("เสร็จแล้ว · พร้อมสรุป", { exact: true }).waitFor();
   await page.goto(origin + "/#dashboard/mine");
   await page
-    .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
+    .getByRole("heading", { name: "รายงานของฉัน", exact: true })
     .waitFor();
   await page
     .getByRole("button", { name: "ประชุมเครือข่าย อสม.", exact: true })
@@ -319,12 +325,24 @@ try {
     path: "test-results/dashboard-desktop.png",
     fullPage: true,
   });
+  await page
+    .getByRole("button", { name: "ประชุมเครือข่าย อสม.", exact: true })
+    .click();
+  await page.locator("details.scope-activity summary").click();
+  await page
+    .getByRole("button", { name: "ส่งให้ประชาสัมพันธ์พิจารณา", exact: true })
+    .click();
   await page.getByRole("button", { name: "ฟีดข่าวภายใน", exact: true }).click();
   await page.getByRole("button", { name: "จัดการข่าว", exact: true }).click();
   await page.getByRole("button", { name: "จัดทำข่าว", exact: true }).click();
   await page
     .getByLabel("เนื้อหาข่าว *", { exact: true })
     .fill("ผลการประชุมเครือข่าย อสม. มีผู้เข้าร่วมจำนวน 32 คน");
+  await page
+    .getByRole("checkbox", {
+      name: "ตรวจข้อมูลส่วนบุคคลในข้อความ สิทธิ์และความเหมาะสมของรูปภาพแล้ว",
+    })
+    .check();
   await page
     .getByRole("button", { name: "Preview ก่อนเผยแพร่", exact: true })
     .click();
@@ -477,7 +495,7 @@ try {
     .fill("New-staff-password!");
   await staff.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   await staff
-    .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
+    .getByRole("heading", { name: "รายงานของฉัน", exact: true })
     .waitFor();
   await staff.goto(origin + "/#import");
   await staff
@@ -586,7 +604,7 @@ try {
     .waitFor();
   await staff.goto(origin + "/#dashboard/mine");
   await staff
-    .getByRole("heading", { name: "ข้อมูลที่ฉันนำเข้า", exact: true })
+    .getByRole("heading", { name: "รายงานของฉัน", exact: true })
     .waitFor();
   await staff
     .getByRole("button", {

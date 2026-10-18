@@ -1,3 +1,4 @@
+import { migrateScope } from "./scope-schema.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
@@ -6,6 +7,7 @@ import { migrateOrganization } from "./organization.js";
 export const ROLES = {
   staff: "เจ้าหน้าที่ปฏิบัติงาน",
   head: "หัวหน้าฝ่าย",
+  center_head: "หัวหน้าศูนย์/หน่วย",
   executive: "ผู้บริหารสำนัก",
   pr: "เจ้าหน้าที่ประชาสัมพันธ์",
   admin: "ผู้ดูแลระบบ",
@@ -181,6 +183,7 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
     `),
     );
   }
+  migrateScope(db);
   return { db, dataDir };
 }
 export function transaction(db, fn) {
@@ -201,6 +204,7 @@ export function publicUser(row) {
     ...user,
     roles: JSON.parse(row.roles),
     scopes: JSON.parse(row.scopes),
+    work_scopes: JSON.parse(row.work_scopes || "[]"),
     active: Boolean(row.active),
   };
 }

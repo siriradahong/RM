@@ -1,23 +1,30 @@
+import { contentScope } from "./access.js";
 import { aggregateMetrics } from "./analytics.js";
 import { httpError } from "./security.js";
 import { reportPeriod, periodLabel, csvCell } from "../shared/report-period.js";
 import { writeAudit } from "./db.js";
 
 export function reportingScope(user, requested = "mine") {
-  if (!user.roles.some((r) => ["staff", "head", "executive"].includes(r)))
+  if (
+    !user.delegated &&
+    !user.roles.some((r) =>
+      ["staff", "head", "center_head", "executive"].includes(r),
+    )
+  )
     throw httpError(403, "ไม่มีสิทธิ์ดูสรุปผลงาน");
   if (requested === "mine")
     return {
-      sql: "a.owner_id=?",
-      params: [user.id],
-      label: "ข้อมูลที่ฉันนำเข้า",
+      sql: "(a.owner_id=? OR EXISTS(SELECT 1 FROM activity_people ap WHERE ap.activity_id=a.id AND ap.user_id=? AND ap.confirmed_at IS NOT NULL))",
+      params: [user.id, user.id],
+      label: "รายงานของฉัน",
     };
-  if (requested === "unit" && user.roles.includes("head") && user.scopes.length)
-    return {
-      sql: `a.unit_id IN (${user.scopes.map(() => "?").join(",")})`,
-      params: user.scopes,
-      label: "หน่วยงานที่รับผิดชอบ",
-    };
+  if (
+    requested === "unit" &&
+    (user.roles.includes("head") ||
+      user.roles.includes("center_head") ||
+      user.delegated)
+  )
+    return { ...contentScope(user), label: "หน่วยงานที่รับผิดชอบ" };
   if (requested === "all" && user.roles.includes("executive"))
     return { sql: "1=1", params: [], label: "ภาพรวมสำนัก" };
   throw httpError(403, "ไม่มีสิทธิ์ดูสรุปในขอบเขตนี้");
@@ -31,9 +38,22 @@ function summarize(db, rows) {
       [units, r.unit_id, r.unit_name],
       [categories, r.category_id, r.category_name],
     ]) {
-      const item = map.get(id) || { id, name, count: 0 };
-      item.count++;
-      map.set(id, item);
+      const entries =
+        map === units
+          ? [
+              { id, name },
+              ...db
+                .prepare(
+                  "SELECT u.id,u.name FROM activity_units au JOIN units u ON u.id=au.unit_id WHERE au.activity_id=? AND u.id<>?",
+                )
+                .all(r.id, r.unit_id),
+            ]
+          : [{ id, name }];
+      for (const entry of entries) {
+        const item = map.get(entry.id) || { ...entry, count: 0 };
+        item.count++;
+        map.set(entry.id, item);
+      }
     }
   }
   return {
@@ -71,17 +91,25 @@ export function buildReport(db, req) {
       if (
         key === "unit" &&
         req.query.scope === "unit" &&
-        !req.user.scopes.includes(id)
+        !req.user.scopes.includes(id) &&
+        !(req.user.roles.includes("center_head") && req.user.unit_id === id)
       )
         throw httpError(403, "หน่วยงานอยู่นอกขอบเขตที่รับผิดชอบ");
-      filters.push(`a.${column}=?`);
-      args.push(id);
+      if (key === "unit") {
+        filters.push(
+          "(a.unit_id=? OR EXISTS(SELECT 1 FROM activity_units au WHERE au.activity_id=a.id AND au.unit_id=?))",
+        );
+        args.push(id, id);
+      } else {
+        filters.push(`a.${column}=?`);
+        args.push(id);
+      }
     }
   }
   const read = ({ from, to }) =>
     db
       .prepare(
-        `SELECT a.id,a.title,a.date,a.status,a.duplicate_of,a.area,a.workers,a.result,a.source,a.owner_id,a.unit_id,a.work_id,a.category_id,a.metrics,a.version,a.updated_at,a.source_text,u.name unit_name,w.name work_name,c.name category_name,o.name owner_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN works w ON w.id=a.work_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id WHERE ${filters.join(" AND ")} AND COALESCE(a.date,substr(a.created_at,1,10)) BETWEEN ? AND ? ORDER BY a.date DESC,a.id DESC`,
+        `SELECT a.id,a.title,a.date,a.status,a.duplicate_of,a.area,a.workers,a.result,a.source,a.owner_id,a.unit_id,a.work_id,a.category_id,a.metrics,a.version,a.updated_at,a.source_text,COALESCE(a.unit_label,u.name) unit_name,COALESCE(a.work_label,w.name) work_name,c.name category_name,o.name owner_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN works w ON w.id=a.work_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id WHERE ${filters.join(" AND ")} AND COALESCE(a.date,substr(a.created_at,1,10)) BETWEEN ? AND ? ORDER BY a.date DESC,a.id DESC`,
       )
       .all(...args, from, to)
       .map((r) => ({ ...r, metrics: JSON.parse(r.metrics) }));

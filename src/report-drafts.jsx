@@ -1,3 +1,4 @@
+import { AISuggestion } from "./scope-workspace";
 import React, { useState, useEffect } from "react";
 import { api, query } from "./api";
 import {
@@ -14,7 +15,8 @@ import {
 export default function ReportDrafts({ id, user, meta, navigate }) {
   if (id === "new")
     return <DraftBuilder user={user} meta={meta} navigate={navigate} />;
-  if (id) return <DraftReader key={id} id={id} navigate={navigate} />;
+  if (id)
+    return <DraftReader key={id} id={id} navigate={navigate} meta={meta} />;
   return <DraftList navigate={navigate} />;
 }
 function DraftList({ navigate }) {
@@ -70,7 +72,9 @@ function DraftBuilder({ user, meta, navigate }) {
       saved || {
         scope: user.roles.includes("executive")
           ? "all"
-          : user.roles.includes("head")
+          : user.roles.includes("head") ||
+              user.roles.includes("center_head") ||
+              user.delegated
             ? "unit"
             : "mine",
         period: "month",
@@ -219,8 +223,10 @@ function DraftBuilder({ user, meta, navigate }) {
               value={filters.scope}
               onChange={(e) => change("scope", e.target.value)}
             >
-              <option value="mine">ข้อมูลที่ฉันนำเข้า</option>
-              {user.roles.includes("head") && (
+              <option value="mine">รายงานของฉัน</option>
+              {(user.roles.includes("head") ||
+                user.roles.includes("center_head") ||
+                user.delegated) && (
                 <option value="unit">หน่วยที่รับผิดชอบ</option>
               )}
               {user.roles.includes("executive") && (
@@ -245,7 +251,10 @@ function DraftBuilder({ user, meta, navigate }) {
                 .filter(
                   (u) =>
                     u.kind !== "section" &&
-                    (filters.scope !== "unit" || user.scopes.includes(u.id)),
+                    (filters.scope !== "unit" ||
+                      user.scopes.includes(u.id) ||
+                      (user.roles.includes("center_head") &&
+                        user.unit_id === u.id)),
                 )
                 .map((u) => (
                   <option key={u.id} value={u.id}>
@@ -433,7 +442,7 @@ function DraftBuilder({ user, meta, navigate }) {
     </>
   );
 }
-function DraftReader({ id, navigate }) {
+function DraftReader({ id, navigate, meta }) {
   const resource = useData("/report-drafts/" + id),
     [form, setForm] = useState(null),
     [reviewed, setReviewed] = useState(false),
@@ -536,6 +545,22 @@ function DraftReader({ id, navigate }) {
                 </Field>
               ) : (
                 <h1>{d.title}</h1>
+              )}
+              {d.can_edit && (
+                <AISuggestion
+                  path={"/report-drafts/" + d.id + "/ai-draft"}
+                  configured={Boolean(meta?.ai?.configured)}
+                  onUse={(p) =>
+                    setForm({
+                      ...form,
+                      narrative: {
+                        summary: p.summary,
+                        problems: p.problems,
+                        next_steps: p.next_steps,
+                      },
+                    })
+                  }
+                />
               )}
               {d.can_edit && (
                 <p className="muted">

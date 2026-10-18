@@ -1,3 +1,4 @@
+import { assertRead, contentScope, assertUnlocked } from "./access.js";
 import { z } from "zod";
 import { canEdit, httpError } from "./security.js";
 import { transaction, writeAudit } from "./db.js";
@@ -15,6 +16,7 @@ export function registerInsightRoutes(app, db) {
       .prepare("SELECT * FROM activities WHERE id=?")
       .get(Number(req.params.id));
     if (!row) throw httpError(404, "ไม่พบรายงาน");
+    assertRead(db, req.user, row);
     const candidates = row.date
       ? db
           .prepare(
@@ -24,11 +26,29 @@ export function registerInsightRoutes(app, db) {
           .filter((r) => duplicateKey(r) === duplicateKey(row))
       : [];
     res.json({
-      items: candidates,
+      items: candidates.filter((r) => {
+        try {
+          assertRead(db, req.user, r);
+          return true;
+        } catch {
+          return false;
+        }
+      }),
       canonical: row.duplicate_of
-        ? db
-            .prepare("SELECT id,title FROM activities WHERE id=?")
-            .get(row.duplicate_of)
+        ? (() => {
+            const c = db
+              .prepare("SELECT * FROM activities WHERE id=?")
+              .get(row.duplicate_of);
+            try {
+              assertRead(db, req.user, c);
+              return { id: c.id, title: c.title };
+            } catch {
+              return {
+                id: row.duplicate_of,
+                title: "รายงานหลักอยู่นอกขอบเขตสิทธิ์",
+              };
+            }
+          })()
         : null,
     });
   });
@@ -45,6 +65,7 @@ export function registerInsightRoutes(app, db) {
         .prepare("SELECT * FROM activities WHERE id=?")
         .get(Number(req.params.id));
       if (!row) throw httpError(404, "ไม่พบรายงาน");
+      assertUnlocked(db, req.user, row);
       if (!canEdit(req.user, row))
         throw httpError(403, "ไม่มีสิทธิ์ตรวจรายการนี้");
       if (row.version !== input.version)
@@ -75,6 +96,7 @@ export function registerInsightRoutes(app, db) {
             400,
             "เลือกรายงานหลักที่ยืนยันแล้วในฝ่ายเดียวกัน และไม่ใช่รายการซ้ำ",
           );
+        assertRead(db, req.user, canonical);
         if (
           db
             .prepare("SELECT id FROM activities WHERE duplicate_of=?")
@@ -117,8 +139,9 @@ export function registerInsightRoutes(app, db) {
       (Date.parse(to) - Date.parse(from)) / 86400000 > 62
     )
       throw httpError(400, "เลือกช่วงปฏิทินไม่เกิน 63 วัน");
-    const clauses = ["a.date BETWEEN ? AND ?"],
-      params = [from, to];
+    const scope = contentScope(req.user);
+    const clauses = [scope.sql, "a.date BETWEEN ? AND ?"],
+      params = [...scope.params, from, to];
     if (unit) {
       clauses.push("a.unit_id=?");
       params.push(Number(unit));

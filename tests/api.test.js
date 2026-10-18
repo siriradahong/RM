@@ -651,11 +651,11 @@ describe(
         ],
       );
     });
-    it("permits internal reads while blocking edits by peers, executives, PR and admin", async () => {
+    it("restricts reads to role scopes and blocks unrelated editors", async () => {
       for (const as of ["peer", "executive", "pr", "admin"]) {
         const r = await request("/activities/" + activityId, { as });
-        assert.equal(r.status, 200);
-        assert.equal(r.json.can_edit, false);
+        assert.equal(r.status, as === "executive" ? 200 : 404);
+        if (as === "executive") assert.equal(r.json.can_edit, false);
         assert.equal(
           (
             await request("/activities/" + activityId, {
@@ -818,6 +818,15 @@ describe(
         ).status,
         403,
       );
+      assert.equal(
+        (
+          await request("/activities/" + activityId + "/news-candidate", {
+            method: "POST",
+            body: {},
+          })
+        ).status,
+        200,
+      );
       const r = await request("/news", {
         as: "pr",
         method: "POST",
@@ -836,7 +845,7 @@ describe(
           await request("/news/" + newsId + "/publish", {
             as: "admin",
             method: "POST",
-            body: { version: 1 },
+            body: { version: 1, privacy_reviewed: true },
           })
         ).status,
         403,
@@ -846,7 +855,7 @@ describe(
           await request("/news/" + newsId + "/publish", {
             as: "pr",
             method: "POST",
-            body: { version: 1 },
+            body: { version: 1, privacy_reviewed: true },
           })
         ).status,
         200,
@@ -1043,8 +1052,15 @@ describe(
         });
         assert.equal(r.status, 200);
       }
-      assert.equal((await request("/inbox")).json.total, 1);
-      assert.equal((await request("/inbox")).json.items[0].can_edit, false);
+      assert.equal((await request("/inbox")).json.total, 0);
+      assert.equal(
+        (await request("/inbox", { as: "executive" })).json.total,
+        1,
+      );
+      assert.equal(
+        (await request("/inbox", { as: "executive" })).json.items[0].can_edit,
+        false,
+      );
     });
     it("persists work across a separate database connection", async () => {
       const { db } = openDatabase(dir);
@@ -1269,7 +1285,9 @@ describe(
         body: payload(),
       });
       assert.equal(created.status, 201);
-      const record = (await request("/activities/" + created.json.id)).json;
+      const record = (
+        await request("/activities/" + created.json.id, { as: "legacy" })
+      ).json;
       const user = (await request("/auth/me", { as: "legacy" })).json.user;
       assert.equal(
         (
@@ -1289,10 +1307,11 @@ describe(
         body: { ...withoutWork, title: "แก้เรื่องเก่าหลังย้ายฝ่าย" },
       });
       assert.equal(edited.status, 200, JSON.stringify(edited.json));
-      const saved = (await request("/activities/" + record.id)).json;
+      const saved = (await request("/activities/" + record.id, { as: "head" }))
+        .json;
       assert.equal(saved.unit_id, 1);
       assert.equal(saved.work_id, work_id);
-      assert.equal(saved.can_edit, false);
+      assert.equal(saved.can_edit, true);
       assert.equal(
         (await request("/activities/" + record.id, { as: "legacy" })).json
           .can_edit,
@@ -1325,7 +1344,8 @@ describe(
       });
       assert.equal(next.status, 201);
       assert.equal(
-        (await request("/activities/" + next.json.id)).json.work_id,
+        (await request("/activities/" + next.json.id, { as: "legacy" })).json
+          .work_id,
         assignedWorks[2],
       );
     });
@@ -1342,7 +1362,8 @@ describe(
       });
       assert.equal(created.status, 201, JSON.stringify(created.json));
       assert.equal(
-        (await request("/activities/" + created.json.id)).json.work_id,
+        (await request("/activities/" + created.json.id, { as: "hybrid" })).json
+          .work_id,
         targetWork,
       );
       const uploaded = await request("/files", {
@@ -1360,7 +1381,8 @@ describe(
       });
       assert.equal(own.status, 201);
       assert.equal(
-        (await request("/activities/" + own.json.id)).json.work_id,
+        (await request("/activities/" + own.json.id, { as: "hybrid" })).json
+          .work_id,
         assignedWorks[1],
       );
       assert.equal(

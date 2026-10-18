@@ -1,3 +1,6 @@
+import { notify } from "./jobs.js";
+import { applyTaskAction } from "./task-actions.js";
+import { manages } from "./access.js";
 import { z } from "zod";
 import { httpError, isHeadForUnit } from "./security.js";
 import { transaction, writeAudit } from "./db.js";
@@ -10,6 +13,7 @@ const projectSchema = z.object({
   title,
   description: z.string().trim().max(5000).default(""),
   unit_id: positive,
+  work_id: positive.nullable().default(null),
   due_date: due,
 });
 const taskSchema = z.object({
@@ -31,9 +35,16 @@ function scope(user) {
   const parts = [],
     args = [];
   if (user.roles.includes("executive")) return { sql: "1=1", args: [] };
-  if (user.roles.includes("head") && user.scopes.length) {
+  if ((user.roles.includes("head") || user.delegated) && user.scopes.length) {
     parts.push(`p.unit_id IN (${user.scopes.map(() => "?").join(",")})`);
     args.push(...user.scopes);
+  }
+  if (
+    (user.roles.includes("center_head") || user.delegated) &&
+    user.work_scopes.length
+  ) {
+    parts.push(`p.work_id IN (${user.work_scopes.map(() => "?")})`);
+    args.push(...user.work_scopes);
   }
   if (user.roles.includes("staff")) {
     parts.push(
@@ -58,7 +69,7 @@ export function registerProjectRoutes(app, db) {
     return p;
   }
   function manager(req, p) {
-    if (!isHeadForUnit(req.user, p.unit_id))
+    if (!req.user.roles.includes("executive") && !manages(req.user, p))
       throw httpError(403, "เฉพาะหัวหน้าที่รับผิดชอบฝ่ายนี้");
   }
   function checkVersion(row, version) {
@@ -66,7 +77,7 @@ export function registerProjectRoutes(app, db) {
       throw httpError(409, "รายการเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่");
   }
   function detail(req, p) {
-    const manage = isHeadForUnit(req.user, p.unit_id),
+    const manage = req.user.roles.includes("executive") || manages(req.user, p),
       broad = manage || req.user.roles.includes("executive");
     const tasks = db
       .prepare(
@@ -168,18 +179,35 @@ export function registerProjectRoutes(app, db) {
   });
   app.get("/api/projects/members", (req, res) => {
     const unit = Number(req.query.unit);
-    if (!isHeadForUnit(req.user, unit))
+    if (
+      !isHeadForUnit(req.user, unit) &&
+      !(req.user.roles.includes("center_head") && req.user.unit_id === unit)
+    )
       throw httpError(403, "ไม่มีสิทธิ์มอบหมายงานในฝ่ายนี้");
     res.json({
       items: db
         .prepare(
           "SELECT id,name,work_id FROM users WHERE active=1 AND unit_id=? AND EXISTS(SELECT 1 FROM json_each(users.roles) WHERE value='staff') ORDER BY name",
         )
-        .all(unit),
+        .all(unit)
+        .filter(
+          (u) =>
+            isHeadForUnit(req.user, unit) ||
+            req.user.work_scopes.includes(u.work_id),
+        ),
     });
   });
   app.post("/api/projects", (req, res) => {
     const input = projectSchema.parse(req.body);
+    if (req.user.roles.includes("center_head") && !input.work_id)
+      input.work_id = req.user.work_scopes[0];
+    if (
+      input.work_id &&
+      !db
+        .prepare("SELECT id FROM works WHERE id=? AND unit_id=? AND active=1")
+        .get(input.work_id, input.unit_id)
+    )
+      throw httpError(400, "ศูนย์ต้องอยู่ในฝ่ายที่เลือก");
     manager(req, input);
     if (
       !db
@@ -202,6 +230,10 @@ export function registerProjectRoutes(app, db) {
             input.due_date,
             req.user.id,
           ).lastInsertRowid,
+      );
+      db.prepare("UPDATE projects SET work_id=? WHERE id=?").run(
+        input.work_id || req.user.work_id || null,
+        id,
       );
       writeAudit(db, req.user, "สร้างโครงการ", "project", id, null, input);
       return id;
@@ -228,10 +260,31 @@ export function registerProjectRoutes(app, db) {
         .get(input.assignee_id, p.unit_id)
     )
       throw httpError(400, "เลือกเจ้าหน้าที่ที่เปิดใช้งานในฝ่ายนี้");
+    if (
+      req.user.roles.includes("center_head") &&
+      !isHeadForUnit(req.user, p.unit_id)
+    ) {
+      const u = db
+        .prepare("SELECT work_id FROM users WHERE id=?")
+        .get(input.assignee_id);
+      if (!req.user.work_scopes.includes(u.work_id))
+        throw httpError(403, "ผู้รับงานอยู่นอกศูนย์ที่รับผิดชอบ");
+    }
     transaction(db, () => {
-      db.prepare(
-        "INSERT INTO project_tasks(project_id,title,assignee_id,due_date) VALUES(?,?,?,?)",
-      ).run(p.id, input.title, input.assignee_id, input.due_date);
+      const created = db
+        .prepare(
+          "INSERT INTO project_tasks(project_id,title,assignee_id,due_date) VALUES(?,?,?,?)",
+        )
+        .run(p.id, input.title, input.assignee_id, input.due_date);
+      notify(
+        db,
+        input.assignee_id,
+        "assignment",
+        "ได้รับมอบหมายงานใหม่",
+        input.title,
+        "projects",
+        `assigned:${created.lastInsertRowid}`,
+      );
       db.prepare(
         "UPDATE projects SET version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
       ).run(p.id);
@@ -270,6 +323,9 @@ export function registerProjectRoutes(app, db) {
       db.prepare(
         "UPDATE projects SET status=?,version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
       ).run(input.status, p.id);
+      db.prepare(
+        "UPDATE projects SET completed_at=CASE WHEN ?='completed' THEN COALESCE(completed_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) ELSE NULL END WHERE id=?",
+      ).run(input.status, p.id);
       writeAudit(
         db,
         req.user,
@@ -287,65 +343,8 @@ export function registerProjectRoutes(app, db) {
       .prepare("SELECT * FROM project_tasks WHERE id=?")
       .get(Number(req.params.id));
     if (!t) throw httpError(404, "ไม่พบงาน");
-    const p = project(req, t.project_id),
-      input = actionSchema.parse(req.body);
-    checkVersion(t, input.version);
-    if (p.status === "completed")
-      throw httpError(400, "หัวหน้าต้องเปิดโครงการอีกครั้งก่อนแก้งาน");
-    let status,
-      activityId = t.activity_id;
-    if (["approve", "return"].includes(input.action)) {
-      manager(req, p);
-      if (input.action === "approve") {
-        if (
-          t.status !== "submitted" ||
-          !db
-            .prepare(
-              "SELECT id FROM activities WHERE id=? AND status='ready' AND duplicate_of IS NULL AND owner_id=? AND unit_id=?",
-            )
-            .get(t.activity_id, t.assignee_id, p.unit_id)
-        )
-          throw httpError(400, "ต้องมีรายงานที่ยืนยันและส่งตรวจแล้ว");
-        status = "completed";
-      } else {
-        if (!["submitted", "completed"].includes(t.status) || !input.note)
-          throw httpError(400, "ระบุเหตุผลส่งกลับงานที่ส่งตรวจหรือตรวจรับแล้ว");
-        status = "in_progress";
-      }
-    } else {
-      if (!req.user.roles.includes("staff") || t.assignee_id !== req.user.id)
-        throw httpError(403, "เฉพาะเจ้าหน้าที่ที่ได้รับมอบหมาย");
-      if (["submitted", "completed"].includes(t.status))
-        throw httpError(400, "งานนี้ส่งตรวจแล้ว");
-      if (input.action === "submit") {
-        const a = db
-          .prepare(
-            "SELECT id FROM activities WHERE id=? AND owner_id=? AND unit_id=? AND status='ready' AND duplicate_of IS NULL",
-          )
-          .get(input.activity_id || null, req.user.id, p.unit_id);
-        if (!a)
-          throw httpError(400, "เลือกรายงานของตนในฝ่ายโครงการที่ยืนยันแล้ว");
-        activityId = a.id;
-        status = "submitted";
-      } else status = "in_progress";
-    }
-    transaction(db, () => {
-      db.prepare(
-        "UPDATE project_tasks SET status=?,activity_id=?,note=?,version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
-      ).run(status, activityId, input.note, t.id);
-      db.prepare(
-        "UPDATE projects SET version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
-      ).run(p.id);
-      writeAudit(
-        db,
-        req.user,
-        `งานมอบหมาย: ${input.action}`,
-        "project",
-        p.id,
-        t,
-        { task_id: t.id, status, activity_id: activityId, note: input.note },
-      );
-    });
-    res.json(detail(req, project(req, p.id)));
+    project(req, t.project_id);
+    const id = applyTaskAction(db, req.user, t.id, req.body);
+    res.json(detail(req, project(req, id)));
   });
 }

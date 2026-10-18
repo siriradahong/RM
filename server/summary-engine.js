@@ -5,18 +5,7 @@ export const fieldNames = {
   workers: "ผู้ปฏิบัติงาน",
   result: "ผลการดำเนินงาน",
 };
-export const metricUnits = [
-  "คน",
-  "ราย",
-  "ครั้ง",
-  "ครั้งบริการ",
-  "เที่ยว",
-  "ตัน",
-  "กิโลกรัม",
-  "แห่ง",
-  "กิจกรรม",
-  "หลังคาเรือน",
-];
+export { metricUnits } from "../shared/metric-units.js";
 export function parseTemplate(row) {
   return {
     ...row,
