@@ -1,3 +1,7 @@
+import { registerDraftRoutes } from "./draft-routes.js";
+import { registerExtractionRoutes } from "./extraction-routes.js";
+import { registerReportRoutes } from "./report-routes.js";
+import { registerProjectRoutes } from "./project-routes.js";
 import express from "express";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
@@ -228,6 +232,10 @@ export function createApp(options = {}) {
       },
     }),
   );
+  registerDraftRoutes(app, db, dataDir);
+  registerExtractionRoutes(app, db, dataDir);
+  registerReportRoutes(app, db);
+  registerProjectRoutes(app, db);
   registerDataRoutes(app, db, dataDir);
   registerAdminRoutes(app, db);
   registerNewsRoutes(app, db);

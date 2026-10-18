@@ -98,6 +98,77 @@ export function openDatabase(dir = process.env.DATA_DIR || "./data") {
       );
     });
   }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=7").get()
+  ) {
+    transaction(db, () => {
+      db.exec(`CREATE TABLE projects(id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', unit_id INTEGER NOT NULL REFERENCES units(id), due_date TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id), status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning','active','awaiting','completed')), version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE TABLE project_tasks(id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), title TEXT NOT NULL, assignee_id INTEGER NOT NULL REFERENCES users(id), due_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'assigned' CHECK(status IN ('assigned','in_progress','submitted','completed')), activity_id INTEGER REFERENCES activities(id), note TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX project_tasks_assignee ON project_tasks(assignee_id,project_id);
+      CREATE INDEX project_tasks_activity ON project_tasks(activity_id,status);
+      INSERT INTO schema_migrations(version) VALUES(7);`);
+    });
+  }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=8").get()
+  ) {
+    transaction(db, () => {
+      db.exec(`CREATE TABLE summary_templates(id INTEGER PRIMARY KEY, name TEXT NOT NULL, unit_id INTEGER REFERENCES units(id), category_id INTEGER NOT NULL REFERENCES categories(id), config TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE UNIQUE INDEX summary_templates_active ON summary_templates(COALESCE(unit_id,0),category_id) WHERE active=1;
+      CREATE TABLE summary_drafts(id INTEGER PRIMARY KEY, title TEXT NOT NULL, owner_id INTEGER NOT NULL REFERENCES users(id), author_name TEXT NOT NULL, snapshot_json TEXT NOT NULL, narrative_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','confirmed')), version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), confirmed_at TEXT, content_hash TEXT);
+      CREATE INDEX summary_drafts_owner ON summary_drafts(owner_id,status);
+      INSERT INTO schema_migrations(version) VALUES(8);`);
+      const meeting = {
+        required_fields: ["date", "area", "result"],
+        metrics: [
+          { label: "ผู้เข้าร่วม", unit: "คน", method: "sum", required: true },
+        ],
+        include_trend: true,
+        include_projects: true,
+        headings: {
+          summary: "สรุปผลการดำเนินงาน",
+          problems: "ปัญหาและอุปสรรค",
+          next_steps: "แนวทางดำเนินงานต่อไป",
+        },
+      };
+      const garbage = {
+        ...meeting,
+        metrics: [
+          {
+            label: "เที่ยวเก็บขยะ",
+            unit: "เที่ยว",
+            method: "sum",
+            required: true,
+          },
+          { label: "ปริมาณขยะ", unit: "ตัน", method: "sum", required: true },
+        ],
+      };
+      const insert = db.prepare(
+        "INSERT INTO summary_templates(name,category_id,config) SELECT ?,id,? FROM categories WHERE name=?",
+      );
+      insert.run(
+        "แบบทดลอง ประชุมและอบรม",
+        JSON.stringify(meeting),
+        "ประชุมและอบรม",
+      );
+      insert.run(
+        "แบบทดลอง เก็บขยะ",
+        JSON.stringify(garbage),
+        "บริการสิ่งแวดล้อม",
+      );
+    });
+  }
+  if (
+    !db.prepare("SELECT version FROM schema_migrations WHERE version=9").get()
+  ) {
+    transaction(db, () =>
+      db.exec(`
+      CREATE TABLE activity_extractions(activity_id INTEGER PRIMARY KEY REFERENCES activities(id),result_json TEXT NOT NULL);
+      ALTER TABLE projects ADD COLUMN target_json TEXT;
+      INSERT INTO schema_migrations(version) VALUES(9);
+    `),
+    );
+  }
   return { db, dataDir };
 }
 export function transaction(db, fn) {

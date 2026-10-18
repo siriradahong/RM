@@ -1,3 +1,9 @@
+import TemplatesAdmin from "./templates";
+import LocalExtraction, { fillEmptyFromExtraction } from "./extraction";
+import ReadingStatus from "./reading-status";
+import ReportDrafts, { TemplateReadiness } from "./report-drafts";
+import Reports from "./reports";
+import Projects from "./projects";
 import React, {
   useState,
   useEffect,
@@ -424,9 +430,18 @@ function App() {
   const canWrite = user.roles.some((r) => ["staff", "head"].includes(r)),
     isPr = user.roles.includes("pr"),
     isAdmin = user.roles.includes("admin");
+  const canReport = user.roles.some((r) =>
+    ["staff", "head", "executive"].includes(r),
+  );
   const menu = [
-    ["dashboard", "แดชบอร์ด", LayoutDashboard],
+    ...(canReport ? [["dashboard", "แดชบอร์ด", LayoutDashboard]] : []),
     ["library", "คลังข้อมูล", FolderOpen],
+    ...(canReport
+      ? [
+          ["reports", "สรุปผลงาน", FileText],
+          ["projects", "โครงการและงานมอบหมาย", CalendarDays],
+        ]
+      : []),
     ...(canWrite
       ? [
           ["import", "เพิ่มข้อมูล", Plus],
@@ -457,6 +472,16 @@ function App() {
   let page;
   if (current === "dashboard" || !current)
     page = <Dashboard mode={view || "overview"} />;
+  else if (current === "reports" && canReport)
+    page = <Reports user={user} meta={meta} navigate={navigate} />;
+  else if (current === "drafts" && canReport)
+    page = (
+      <ReportDrafts id={view} user={user} meta={meta} navigate={navigate} />
+    );
+  else if (current === "projects" && canReport)
+    page = (
+      <Projects user={user} meta={meta} navigate={navigate} notify={notify} />
+    );
   else if (current === "library") page = <Library />;
   else if (current === "activity") page = <ActivityEditor id={view} />;
   else if (current === "import" && canWrite) page = <ImportPage />;
@@ -495,7 +520,7 @@ function App() {
         />
       )}
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
-        <a className="brand" href="#dashboard/overview">
+        <a className="brand" href={"#" + landing(user)}>
           <img src="/municipality-seal.png" alt="ตราเทศบาลนครขอนแก่น" />
           <div>
             <strong>เทศบาลนครขอนแก่น</strong>
@@ -516,7 +541,11 @@ function App() {
           {menu.map(([p, title, Icon]) => (
             <button
               key={p}
-              className={current === p ? "active" : ""}
+              className={
+                current === p || (p === "reports" && current === "drafts")
+                  ? "active"
+                  : ""
+              }
               onClick={() =>
                 navigate(
                   p === "dashboard"
@@ -559,7 +588,9 @@ function App() {
           <div className="breadcrumb">
             พื้นที่การทำงาน <ChevronRight size={14} />{" "}
             <b>
-              {menu.find((x) => x[0] === current)?.[1] || "รายละเอียดข้อมูล"}
+              {current === "drafts"
+                ? "สรุปผลงาน"
+                : menu.find((x) => x[0] === current)?.[1] || "รายละเอียดข้อมูล"}
             </b>
           </div>
           <button className="profile" onClick={() => setAccount(true)}>
@@ -856,6 +887,16 @@ function Filters({
 }
 function Dashboard({ mode }) {
   const { user, meta, navigate, canWrite } = useApp();
+  const summaryScope =
+    mode === "mine"
+      ? user.roles.some((r) => ["staff", "head", "executive"].includes(r))
+        ? "mine"
+        : null
+      : user.roles.includes("executive")
+        ? "all"
+        : mode === "unit" && user.roles.includes("head")
+          ? "unit"
+          : null;
   const [filters, setFilters] = useState({
     ...monthRange(),
     unit: mode === "unit" ? user.scopes[0] || user.unit_id || "" : "",
@@ -907,12 +948,37 @@ function Dashboard({ mode }) {
         value={mode}
         onChange={(m) => navigate("dashboard/" + m)}
       />
+      {user.roles.some((r) => ["staff", "head", "executive"].includes(r)) && (
+        <div className="report-actions">
+          <Button icon={FileText} onClick={() => navigate("reports")}>
+            สรุปรายเดือน / ไตรมาส / ปี
+          </Button>
+          <Button icon={CalendarDays} onClick={() => navigate("projects")}>
+            งานที่ได้รับมอบหมาย
+          </Button>
+        </div>
+      )}
       <Filters
         value={filters}
         onChange={setFilters}
         search={false}
         scope={false}
       />
+      {summaryScope &&
+        (summaryScope !== "unit" ||
+          !filters.unit ||
+          user.scopes.includes(Number(filters.unit))) && (
+          <TemplateReadiness
+            filters={{
+              scope: summaryScope,
+              period: "custom",
+              from: filters.from,
+              to: filters.to,
+              unit: String(filters.unit || ""),
+            }}
+            navigate={navigate}
+          />
+        )}
       <Resource resource={resource}>
         {(d) => (
           <>
@@ -1087,6 +1153,21 @@ function Dashboard({ mode }) {
           {(d) => <WorkTable rows={d.items} />}
         </Resource>
       </section>
+      <details className="workflow-guide">
+        <summary>ข้อมูลไปเป็นสรุปผลงานได้อย่างไร</summary>
+        <ol>
+          <li>
+            เจ้าหน้าที่ส่งข้อความและไฟล์ผ่านเว็บ หรือรับจาก LINE ที่ตั้งค่าแล้ว
+          </li>
+          <li>ตรวจข้อมูลจากต้นฉบับ แก้เฉพาะจุด แล้วกดยืนยันข้อมูลเพื่อสรุป</li>
+          <li>ระบบรวมรายงานที่ยืนยันตามฝ่าย งาน วันที่ และหน่วยนับ</li>
+          <li>เปิดสรุปรายเดือน/ไตรมาส/ปี แล้วส่งออกหรือเปิดดูหลักฐานต้นทาง</li>
+        </ol>
+        <p>
+          AI/OCR ยังไม่เชื่อมต่อ
+          จึงต้องตรวจและเติมข้อมูลจากต้นฉบับเองในขั้นยืนยัน
+        </p>
+      </details>
       <Notice>
         ไฟล์ฝากเก็บและรายการรอตรวจไม่รวมในยอดกิจกรรม
         ผู้รายงานหรือผู้นำเข้าอาจรายงานแทนผู้ปฏิบัติงานหลายคนได้
@@ -1378,12 +1459,17 @@ function FilePreview({ file, onClose }) {
 
 function ImportPage() {
   const { user, meta, navigate, notify } = useApp();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => {
+    const draft = sessionStorage.getItem("rm-task-draft") || "";
+    sessionStorage.removeItem("rm-task-draft");
+    return draft;
+  });
   const [files, setFiles] = useState([]);
   const [archive, setArchive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
+  const [reading, setReading] = useState(false);
   const uploaded = useRef(new Map());
   const intakeKey = useRef(crypto.randomUUID());
   const unit = user.roles.includes("staff")
@@ -1471,7 +1557,17 @@ function ImportPage() {
             metrics: [],
           },
         });
-        notify("รับรายงานแล้ว เก็บต้นฉบับไว้รอยืนยันข้อมูล");
+        setReading(true);
+        try {
+          await api(`/activities/${out.id}/extract`, {
+            method: "POST",
+            body: { version: out.version },
+          });
+          notify("อ่านต้นฉบับแล้ว กรุณาตรวจและยืนยันข้อมูล");
+        } catch {
+          notify("เก็บรายงานแล้ว กดอ่านต้นฉบับอีกครั้งในหน้าตรวจข้อมูลได้");
+        }
+        setReading(false);
         navigate("activity/" + out.id);
       }
     } catch (e) {
@@ -1557,7 +1653,7 @@ function ImportPage() {
             <Notice>
               {archive
                 ? "เก็บข้อความและไฟล์ไว้ค้นหา ส่งข้อความอย่างเดียวได้ ไม่สร้างรายงานและไม่รวมในสรุปผลงาน"
-                : "เก็บข้อความและไฟล์ต้นฉบับก่อน ขณะนี้ยังไม่เชื่อม AI/OCR จึงยังไม่แยกข้อมูลจากข้อความหรือเอกสารอัตโนมัติ รายงานจะรอตรวจและยังไม่รวมยอดบนแดชบอร์ด"}
+                : "อ่านข้อความและ PDF/Excel ในเครื่อง แล้วให้คุณตรวจข้อมูลก่อนยืนยัน รูปถ่ายแนบเป็นหลักฐานโดยอัตโนมัติ"}
             </Notice>
             <p className="muted">
               ผู้ส่ง: {user.name} · ฝ่ายรับเรื่อง:{" "}
@@ -1572,7 +1668,9 @@ function ImportPage() {
               disabled={busy || (!text.trim() && !files.length)}
             >
               {busy
-                ? `กำลังจัดเก็บ ${progress}/${files.length} ไฟล์…`
+                ? reading
+                  ? "กำลังอ่านข้อความและจัดข้อมูล…"
+                  : `กำลังจัดเก็บ ${progress}/${files.length} ไฟล์…`
                 : archive
                   ? files.length
                     ? "ฝากไฟล์ไว้ค้นหา"
@@ -1658,7 +1756,11 @@ function ActivityEditor({ id }) {
         .then((r) => {
           if (alive) {
             setRecord(r);
-            setForm({ ...r, file_ids: [], inbox_ids: [] });
+            setForm({
+              ...fillEmptyFromExtraction(r, r.extraction),
+              file_ids: [],
+              inbox_ids: [],
+            });
             setEvidence(r.files);
           }
         })
@@ -1815,21 +1917,22 @@ function ActivityEditor({ id }) {
           {record?.owner_name || user.name}
         </span>
       </div>
+      {record?.locked_by_project && (
+        <Notice>
+          รายงานนี้ใช้ตรวจรับงานแล้ว หากต้องแก้ไข
+          ให้หัวหน้าเปิดโครงการและส่งงานกลับก่อน
+        </Notice>
+      )}
+      {record && (
+        <LocalExtraction
+          key={record.id + ":" + record.version}
+          record={record}
+          onApply={(e) => setForm((f) => fillEmptyFromExtraction(f, e))}
+        />
+      )}
       <div className="review-layout">
         <section className="panel review-main">
           <h2>สรุปข้อมูล</h2>
-          {record?.intake && (
-            <details className="review-note">
-              <summary>
-                ยังไม่เชื่อม AI/OCR — ข้อมูลที่ยังไม่ระบุต้องเติมจากต้นฉบับ
-              </summary>
-              <p>
-                ชื่อเริ่มต้นใช้บรรทัดแรกหรือชื่อไฟล์ ไม่ใช่ผลสกัดอัตโนมัติ
-                ต้องตรวจฝ่ายเจ้าของงานแยกจากฝ่ายผู้ส่ง
-                และไม่คาดเดาจำนวนคนจากภาพถ่าย
-              </p>
-            </details>
-          )}
           {needsAssignment && (
             <Notice error>กรุณาให้แอดมินกำหนดฝ่ายและงานก่อนสร้างรายงาน</Notice>
           )}
@@ -2008,6 +2111,7 @@ function ActivityEditor({ id }) {
                       "กิจกรรม",
                       "ครั้ง",
                       "ครั้งบริการ",
+                      "เที่ยว",
                       "คน",
                       "ราย",
                       "ตัน",
@@ -3082,7 +3186,8 @@ function NewsEditor({ id }) {
 }
 
 function Admin({ tab: requestedTab }) {
-  const { navigate } = useApp();
+  const [settingsView, setSettingsView] = useState("organization");
+  const { navigate, meta } = useApp();
   const tab = ["users", "master", "line"].includes(requestedTab)
     ? requestedTab
     : "users";
@@ -3104,7 +3209,28 @@ function Admin({ tab: requestedTab }) {
       {tab === "users" ? (
         <UsersAdmin />
       ) : tab === "master" ? (
-        <MasterAdmin />
+        <>
+          <div className="section-tabs" aria-label="ตั้งค่าข้อมูล">
+            <button
+              className={settingsView === "organization" ? "active" : ""}
+              onClick={() => setSettingsView("organization")}
+            >
+              ฝ่าย งาน และประเภทงาน
+            </button>
+            <button
+              className={settingsView === "templates" ? "active" : ""}
+              onClick={() => setSettingsView("templates")}
+            >
+              รูปแบบรายงาน
+            </button>
+          </div>
+          {settingsView === "organization" ? (
+            <MasterAdmin />
+          ) : (
+            <TemplatesAdmin meta={meta} />
+          )}
+          <ReadingStatus />
+        </>
       ) : (
         <LineAdmin />
       )}
@@ -3799,6 +3925,10 @@ function LineAdmin() {
   );
 }
 const auditEntities = {
+  summary_template: "แม่แบบสรุปผล",
+  summary_draft: "ฉบับรายงานสรุป",
+  project: "โครงการและงานมอบหมาย",
+  report_export: "ส่งออกสรุปผลงาน",
   activity: "รายการงาน",
   news: "ข่าว",
   user: "บัญชีผู้ใช้งาน",
@@ -3826,6 +3956,12 @@ function AuditChanges({ entry }) {
     unit_name: "ฝ่าย/กลุ่มงาน",
     work_id: "รหัสงาน",
     work_name: "งานที่รับผิดชอบ",
+    project_id: "รหัสโครงการ",
+    task_id: "รหัสงานมอบหมาย",
+    assignee_id: "รหัสผู้รับมอบหมาย",
+    due_date: "กำหนดส่ง",
+    note: "หมายเหตุ",
+    description: "รายละเอียด",
     parent_id: "รหัสสังกัด/งานแม่",
     kind: "ประเภท",
     category_id: "รหัสประเภทงาน",

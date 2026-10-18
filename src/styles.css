@@ -11,6 +11,207 @@
   --muted: #78899a;
   --radius: 12px;
 }
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #102e46a6;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.settings-dialog {
+  background: white;
+  border-radius: 16px;
+  width: min(760px, 100%);
+  max-height: 90dvh;
+  overflow: auto;
+  box-shadow: 0 20px 80px #001e3640;
+}
+.settings-dialog > header {
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 1;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.settings-dialog > header button {
+  font-size: 28px;
+  line-height: 1;
+  min-width: 40px;
+  min-height: 40px;
+}
+.settings-dialog .task-form {
+  margin: 0;
+  background: white;
+  padding: 24px;
+}
+@media (max-width: 600px) {
+  .dialog-backdrop {
+    padding: 12px;
+  }
+  .settings-dialog {
+    max-height: 94dvh;
+  }
+  .settings-dialog .task-form {
+    padding: 18px;
+  }
+}
+.section-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 24px;
+  overflow-x: auto;
+}
+.section-tabs button {
+  padding: 14px 4px;
+  white-space: nowrap;
+  color: #60798d;
+  border-bottom: 3px solid transparent;
+  font-weight: 600;
+}
+.section-tabs button.active {
+  color: var(--navy);
+  border-color: var(--sky);
+}
+.flow-steps {
+  display: flex;
+  gap: 0;
+  list-style: none;
+  padding: 0;
+  margin: 22px 0 28px;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.flow-steps li {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  color: #77899b;
+  border-right: 1px solid var(--line);
+  font-size: 14px;
+}
+.flow-steps li:last-child {
+  border: 0;
+}
+.flow-steps li span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #edf2f6;
+}
+.flow-steps li.current {
+  color: var(--navy);
+  background: #eff8fe;
+  font-weight: 600;
+}
+.flow-steps li.current span {
+  background: var(--navy);
+  color: white;
+}
+.local-reading {
+  border: 1px solid #cde3ee;
+  background: #f1f9fd;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.local-reading-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.local-reading-header p {
+  font-size: 13px;
+  color: #60798d;
+  margin: 4px 0 10px;
+}
+.local-reading details {
+  margin: 12px 0;
+}
+.local-reading summary {
+  cursor: pointer;
+  color: var(--navy);
+}
+.read-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 14px;
+  background: white;
+}
+.setup-status {
+  padding: 24px;
+}
+.setup-status p {
+  margin: 8px 0;
+}
+.setup-pills {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+.setup-pills span {
+  background: #eaf6ef;
+  color: #286947;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.setup-pills .setup-warning {
+  background: #fff5df;
+  color: #80591e;
+}
+.project-performance {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  background: #f7fafc;
+  margin: 20px 0;
+}
+.project-performance .panel-heading {
+  padding: 0;
+}
+.project-performance progress {
+  width: min(300px, 70%);
+  accent-color: #0282b8;
+}
+@media (max-width: 600px) {
+  .flow-steps li {
+    padding: 12px 5px;
+    font-size: 12px;
+    gap: 5px;
+  }
+  .flow-steps li span {
+    width: 22px;
+    height: 22px;
+  }
+  .local-reading-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .local-reading {
+    padding: 16px;
+  }
+  .section-tabs {
+    gap: 16px;
+  }
+}
 * {
   box-sizing: border-box;
 }
@@ -2626,5 +2827,465 @@ footer {
   .review-savebar .button svg {
     flex-shrink: 0;
     width: 16px;
+  }
+}
+
+/* Reporting and project workflows share the existing municipal visual system. */
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.report-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.report-filters .field,
+.project-form .field {
+  margin: 0;
+}
+.report-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 20px 0;
+}
+.report-counts > * {
+  border: 1px solid #dce8ef;
+  background: #f5faff;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: left;
+  color: #0a4160;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-counts strong {
+  font-size: 32px;
+}
+.report-counts span,
+.muted {
+  color: #60798d;
+  font-size: 14px;
+}
+.report-breakdown {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid #e3ecf3;
+  background: transparent;
+  text-align: left;
+  color: #164c69;
+}
+.report-breakdown b {
+  white-space: nowrap;
+}
+.project-form {
+  display: grid;
+  gap: 18px;
+}
+.task-form {
+  padding: 20px;
+  background: #f1f8fc;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+.project-card {
+  scroll-margin-top: 24px;
+}
+.project-card h3 {
+  margin: 16px 0 10px;
+}
+.project-stages {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.project-stages span {
+  padding: 8px 14px;
+  border-radius: 30px;
+  background: #f0f4f8;
+  color: #667e90;
+  font-size: 14px;
+}
+.project-stages .current {
+  background: #d9effa;
+  color: #075b86;
+  font-weight: 600;
+}
+.project-task {
+  border: 1px solid #dce8ef;
+  padding: 20px;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+.project-task .panel-heading {
+  margin-bottom: 12px;
+}
+.project-task .report-actions {
+  margin-bottom: 0;
+}
+.project-card details {
+  margin: 18px 0;
+}
+.project-card summary {
+  cursor: pointer;
+  color: #12608b;
+}
+.report-page table {
+  min-width: 680px;
+}
+.report-page td {
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .report-filters,
+  .report-counts {
+    grid-template-columns: 1fr;
+  }
+  .project-task {
+    padding: 14px;
+  }
+  .report-actions > .button {
+    flex: 1;
+  }
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  body {
+    background: white !important;
+    color: #162f3f;
+  }
+  .sidebar,
+  .topbar,
+  .no-print,
+  .mobile-overlay,
+  .toast,
+  .skip-link,
+  .content > footer {
+    display: none !important;
+  }
+  .main-shell {
+    margin: 0 !important;
+  }
+  .content {
+    max-width: none;
+    padding: 0 !important;
+  }
+  .report-page .page-heading {
+    margin-bottom: 12px;
+  }
+  .report-page .panel {
+    box-shadow: none;
+    padding: 12px;
+    border: 1px solid #ddd;
+    margin-bottom: 12px;
+  }
+  .report-page .report-counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .report-page .table-scroll {
+    overflow: visible;
+  }
+  .report-page table {
+    min-width: 0;
+    width: 100%;
+    font-size: 10px;
+  }
+  .report-page th,
+  .report-page td {
+    padding: 7px;
+  }
+  .report-page thead {
+    display: table-header-group;
+  }
+  .report-page tr,
+  .report-counts {
+    break-inside: avoid;
+  }
+  .report-page h2 {
+    break-after: avoid;
+  }
+  .report-page .button,
+  .report-page .report-actions {
+    display: none;
+  }
+  .report-page .table-link {
+    text-align: left;
+    color: #162f3f;
+  }
+  .report-page .dashboard-charts {
+    display: block;
+  }
+}
+.report-page .panel,
+.project-card,
+.panel.project-form {
+  padding: 24px;
+}
+.report-page .panel-heading,
+.project-card .panel-heading {
+  padding: 0 0 16px;
+}
+.report-page .panel > h2 {
+  margin-bottom: 16px;
+}
+.workflow-guide {
+  border: 1px solid #dce8ef;
+  background: #fff;
+  padding: 18px 24px;
+  border-radius: 12px;
+  margin: 20px 0;
+}
+.workflow-guide summary {
+  color: #135b82;
+  cursor: pointer;
+  font-weight: 600;
+}
+.workflow-guide ol {
+  padding-left: 24px;
+  line-height: 1.9;
+  margin: 16px 0;
+}
+@media (max-width: 600px) {
+  .report-page .panel,
+  .project-card,
+  .panel.project-form {
+    padding: 16px;
+  }
+  .panel.report-counts {
+    gap: 8px;
+    padding: 12px;
+  }
+  .panel.report-counts > * {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+  }
+  .panel.report-counts strong {
+    font-size: 24px;
+    min-width: 30px;
+  }
+}
+@media print {
+  .report-page .panel {
+    padding: 12px;
+  }
+}
+.report-page .report-metrics table {
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .report-page .report-metrics th,
+  .report-page .report-metrics td {
+    padding: 10px 5px;
+    font-size: 12px;
+  }
+}
+.template-panel {
+  padding: 24px;
+}
+.template-panel > .panel-heading {
+  padding: 0 0 18px;
+}
+.template-panel > p {
+  margin-bottom: 18px;
+}
+.template-list article,
+.draft-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  border-top: 1px solid #dce8ef;
+  padding: 20px 0;
+}
+.template-list h3,
+.draft-list-item h2 {
+  margin: 0 0 8px;
+}
+.template-list p {
+  margin: 6px 0;
+  color: #597388;
+}
+.template-list small {
+  display: block;
+  line-height: 1.8;
+}
+.template-metric {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  background: white;
+  border: 1px solid #dae5ee;
+  border-radius: 10px;
+}
+.template-panel fieldset {
+  border: 1px solid #dae5ee;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.readiness-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.readiness-counts span {
+  background: #eef6fb;
+  padding: 12px;
+  border-radius: 8px;
+  color: #125375;
+}
+.selection-row,
+.snapshot-source {
+  padding: 18px 0;
+  border-top: 1px solid #dae5ee;
+}
+.selection-row .check {
+  margin: 8px 0;
+}
+.draft-section {
+  margin: 26px 0;
+}
+.draft-document {
+  overflow-wrap: anywhere;
+}
+.draft-document table {
+  min-width: 0;
+  table-layout: fixed;
+}
+.draft-document th,
+.draft-document td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 10px 6px;
+}
+.draft-section h2 {
+  margin-bottom: 14px;
+}
+.draft-document .source-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.snapshot-source h3 {
+  margin-bottom: 8px;
+}
+.snapshot-source small {
+  color: #60798d;
+}
+.source-dim {
+  opacity: 0.45;
+}
+.draft-trend {
+  display: grid;
+  grid-template-columns: 80px 1fr 110px;
+  gap: 16px;
+  align-items: center;
+  margin: 14px 0;
+}
+.draft-trend meter {
+  width: 100%;
+  height: 26px;
+}
+.snapshot-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.snapshot-images figure {
+  margin: 0;
+}
+.snapshot-images img {
+  width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+  background: #f2f6fa;
+}
+.snapshot-images figcaption {
+  font-size: 13px;
+  margin-top: 6px;
+}
+.snapshot-hash {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  font-size: 12px;
+  color: #60798d;
+}
+@media (max-width: 900px) {
+  .template-metric {
+    grid-template-columns: 1fr 1fr;
+  }
+  .template-list article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+@media (max-width: 600px) {
+  .template-panel {
+    padding: 16px;
+  }
+  .template-panel .panel-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .template-metric,
+  .snapshot-images {
+    grid-template-columns: 1fr;
+  }
+  .draft-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .draft-trend {
+    grid-template-columns: 65px 1fr 80px;
+    gap: 8px;
+    font-size: 12px;
+  }
+}
+@media print {
+  :root,
+  .main-shell {
+    background: white;
+  }
+  .draft-document .source-dim {
+    opacity: 1;
+  }
+  .snapshot-source,
+  .snapshot-images figure {
+    break-inside: avoid;
+  }
+  .snapshot-images {
+    display: block;
+  }
+  .snapshot-images figure {
+    margin-bottom: 20px;
+  }
+  .snapshot-images img {
+    max-height: 350px;
   }
 }

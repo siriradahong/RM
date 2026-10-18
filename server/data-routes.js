@@ -37,11 +37,19 @@ const pagination = (req) => ({
 });
 export function activity(db, row, user) {
   if (!row) return null;
+  const locked = Boolean(
+    db
+      .prepare(
+        "SELECT id FROM project_tasks WHERE activity_id=? AND status='completed' LIMIT 1",
+      )
+      .get(row.id),
+  );
   return {
     ...row,
     metrics: JSON.parse(row.metrics),
     intake: Boolean(row.intake),
-    can_edit: canEdit(user, row),
+    locked_by_project: locked,
+    can_edit: !locked && canEdit(user, row),
   };
 }
 const selectActivity = `SELECT a.*,u.name AS unit_name,c.name AS category_name,o.name AS owner_name,w.name AS work_name FROM activities a JOIN units u ON u.id=a.unit_id LEFT JOIN categories c ON c.id=a.category_id JOIN users o ON o.id=a.owner_id LEFT JOIN works w ON w.id=a.work_id`;
@@ -122,6 +130,14 @@ export function registerDataRoutes(app, db, dataDir) {
     if (!r) throw httpError(404, "ไม่พบรายการงาน");
     res.json({
       ...activity(db, r, req.user),
+      extraction: (() => {
+        const e = db
+          .prepare(
+            "SELECT result_json FROM activity_extractions WHERE activity_id=?",
+          )
+          .get(r.id);
+        return e ? JSON.parse(e.result_json) : null;
+      })(),
       files: db
         .prepare(
           "SELECT id,title,original_name,mime,size,created_at FROM files WHERE activity_id=?",
@@ -196,6 +212,18 @@ export function registerDataRoutes(app, db, dataDir) {
         input.work_id,
       );
     }
+    if (
+      record &&
+      db
+        .prepare(
+          "SELECT id FROM project_tasks WHERE activity_id=? AND status='completed' LIMIT 1",
+        )
+        .get(record.id)
+    )
+      throw httpError(
+        409,
+        "รายงานนี้ใช้ตรวจรับงานแล้ว ให้หัวหน้าเปิดโครงการและส่งงานกลับก่อนแก้ไข",
+      );
     if (record && input.version !== record.version)
       throw httpError(409, "มีผู้แก้ไขรายการนี้แล้ว กรุณาโหลดข้อมูลใหม่");
     if (
@@ -336,6 +364,17 @@ export function registerDataRoutes(app, db, dataDir) {
       if (!canEdit(req.user, report) || !canEdit(req.user, file))
         throw httpError(403, "ไม่มีสิทธิ์แนบไฟล์นี้");
       if (file.activity_id === reportId) return { report, file, already: true };
+      if (
+        db
+          .prepare(
+            "SELECT id FROM project_tasks WHERE activity_id=? AND status='completed' LIMIT 1",
+          )
+          .get(reportId)
+      )
+        throw httpError(
+          409,
+          "รายงานนี้ใช้ตรวจรับงานแล้ว ให้หัวหน้าส่งงานกลับก่อนเพิ่มหลักฐาน",
+        );
       if (file.activity_id) throw httpError(409, "ไฟล์นี้แนบกับรายงานอื่นแล้ว");
       if (report.version !== req.body.version)
         throw httpError(
