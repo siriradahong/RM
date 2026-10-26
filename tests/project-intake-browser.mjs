@@ -34,10 +34,6 @@ for (const [name, roles] of [
         name === "head" ? "[1]" : "[]",
       ).lastInsertRowid,
   );
-for (const name of ["head", "staff", "peer"])
-  db.prepare(
-    "INSERT INTO activities(title,date,unit_id,work_id,owner_id,status,source,source_text) VALUES(?, '2026-10-18',1,?,?,'ready','web','ข้อความสำหรับตรวจค้นหาตามสิทธิ์')",
-  ).run("ค้นหาทดสอบ " + name, work, users[name]);
 let browser, server;
 const errors = [];
 try {
@@ -92,50 +88,6 @@ try {
       .evaluate((e) => getComputedStyle(e).backgroundColor),
     "rgb(20, 65, 47)",
   );
-  assert.equal(
-    await p
-      .locator(".sidebar nav")
-      .getByRole("button", { name: "รายงานสรุป", exact: true })
-      .count(),
-    1,
-  );
-  for (const name of ["คลังข้อมูล", "พื้นที่งานของฉัน", "เขียนรายงาน"])
-    assert.equal(
-      await p
-        .locator(".sidebar nav")
-        .getByRole("button", { name, exact: true })
-        .count(),
-      0,
-    );
-  await p
-    .locator(".sidebar nav")
-    .getByRole("button", { name: "แดชบอร์ดของฉัน", exact: true })
-    .click();
-  await p.getByLabel("ค้นหางานของฉัน", { exact: true }).fill("ค้นหาทดสอบ");
-  await p
-    .getByRole("button", { name: "ค้นหาทดสอบ head", exact: true })
-    .waitFor();
-  assert.equal(await p.locator("tbody tr").count(), 1);
-  assert.equal(
-    await p
-      .getByRole("button", { name: "ค้นหาทดสอบ peer", exact: true })
-      .count(),
-    0,
-  );
-  await shot(p, "my-search-desktop");
-  await p
-    .locator(".sidebar nav")
-    .getByRole("button", { name: "ส่งรายงานทาง LINE", exact: true })
-    .click();
-  await p.getByRole("button", { name: "ดูรูปแนบ", exact: true }).click();
-  await p.getByText("รูปเอกสาร / รูปกิจกรรม", { exact: true }).waitFor();
-  await p.getByRole("button", { name: "ดูการยืนยัน", exact: true }).click();
-  assert.equal(
-    db.prepare("SELECT count(*) n FROM activities").get().n,
-    3,
-    "Example chat must never create reports",
-  );
-  await shot(p, "line-report-desktop");
   await p
     .locator(".sidebar nav")
     .getByRole("button", { name: "ติดตามโครงการ", exact: true })
@@ -145,12 +97,14 @@ try {
     .click();
   const source =
     "ชื่อโครงการ: คัดกรองสุขภาพชุมชน\nสิ้นสุดโครงการ: 31/10/2569\n- เตรียมอุปกรณ์ | บุคลากร peer | 25/10/2569\n- ลงพื้นที่คัดกรอง | บุคลากร staff | 25/10/2569 | 09:00–11:00";
-  await p.getByLabel("อ่านเอกสารโครงการจากเครื่อง").setInputFiles({
-    name: "project.docx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    buffer: makeTextDocx("โครงการ", [{ heading: "กำหนดงาน", text: source }]),
-  });
+  await p
+    .getByLabel("อ่านเอกสารโครงการจากเครื่อง")
+    .setInputFiles({
+      name: "project.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      buffer: makeTextDocx("โครงการ", [{ heading: "กำหนดงาน", text: source }]),
+    });
   await p.waitForFunction(() =>
     document
       .querySelector(".project-intake textarea")
@@ -234,22 +188,6 @@ try {
   await s.locator("#project-" + pid).waitFor();
   assert.equal(await s.locator(".project-task").count(), 1);
   assert.equal(await s.getByText("ต้นฉบับโครงการ", { exact: true }).count(), 0);
-  await s.goto(origin + "/#dashboard/mine");
-  await s.getByLabel("ค้นหางานของฉัน", { exact: true }).fill("ค้นหาทดสอบ");
-  await s
-    .getByRole("button", { name: "ค้นหาทดสอบ staff", exact: true })
-    .waitFor();
-  assert.equal(await s.locator("tbody tr").count(), 1);
-  await shot(s, "my-search-mobile");
-  await s.getByRole("button", { name: "เปิดเมนู", exact: true }).click();
-  await s
-    .locator(".sidebar nav")
-    .getByRole("button", { name: "ส่งรายงานทาง LINE", exact: true })
-    .click();
-  await s
-    .getByRole("heading", { name: "ส่งรายงานทาง LINE", exact: true })
-    .waitFor();
-  await shot(s, "line-report-mobile");
   assert.deepEqual(errors, []);
   console.log(
     "Project intake + automatic assignments + linked calendar: desktop/mobile passed",

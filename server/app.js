@@ -238,19 +238,6 @@ export function createApp(options = {}) {
       },
       ai: aiStatus(),
       line: {
-        oaUrl: (() => {
-          try {
-            const u = new URL(process.env.LINE_OA_URL || "");
-            return u.protocol === "https:" &&
-              ["line.me", "lin.ee"].includes(u.hostname) &&
-              !u.username &&
-              !u.password
-              ? u.href
-              : null;
-          } catch {
-            return null;
-          }
-        })(),
         receiveConfigured: Boolean(
           process.env.LINE_CHANNEL_SECRET && process.env.LINE_REPORT_GROUP_ID,
         ),
