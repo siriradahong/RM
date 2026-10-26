@@ -174,10 +174,23 @@ export function createApp(options = {}) {
     ).run(digest(raw), row.id, csrf, Date.now() + cookieOptions.maxAge);
     res
       .cookie("rm_session", raw, cookieOptions)
-      .json({ user: publicUser(row), csrf });
+      .json({ user: effectiveUser(db, publicUser(row)), csrf });
   });
   app.use("/api", (req, res, next) => {
     if (!req.user) return next(httpError(401, "กรุณาเข้าสู่ระบบ"));
+    if (
+      req.user.assignment_review_required &&
+      !(req.user.roles.includes("admin") && req.path.startsWith("/admin/")) &&
+      !["/auth/me", "/auth/logout", "/auth/password", "/meta"].includes(
+        req.path,
+      )
+    )
+      return next(
+        httpError(
+          403,
+          "บัญชีเดิมมีหลายบทบาทหรือหลายฝ่าย กรุณาให้แอดมินกำหนดตำแหน่งหลักและสังกัดเดียวก่อนใช้งาน",
+        ),
+      );
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers["x-csrf-token"] !== req.session.csrf

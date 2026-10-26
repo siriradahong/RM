@@ -1,6 +1,15 @@
+import { assignmentReviewRequired } from "../shared/user-assignment.js";
 import { httpError } from "./security.js";
 import { writeAudit } from "./db.js";
 export function effectiveUser(db, user, now = new Date().toISOString()) {
+  if (user.assignment_review_required)
+    return {
+      ...user,
+      roles: user.roles.includes("admin") ? ["admin"] : [],
+      scopes: [],
+      work_scopes: [],
+      delegated: false,
+    };
   const scopes = new Set(user.scopes),
     works = new Set(user.work_scopes || []);
   const grants = db
@@ -16,6 +25,11 @@ export function effectiveUser(db, user, now = new Date().toISOString()) {
       .get(g.grantor_id);
     return (
       u &&
+      !assignmentReviewRequired({
+        roles: JSON.parse(u.roles),
+        scopes: JSON.parse(u.scopes),
+        work_scopes: JSON.parse(u.work_scopes),
+      }) &&
       (g.unit_id
         ? JSON.parse(u.roles).includes("head") &&
           JSON.parse(u.scopes).includes(g.unit_id)

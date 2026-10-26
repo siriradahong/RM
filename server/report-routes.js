@@ -8,7 +8,7 @@ export function reportingScope(user, requested = "mine") {
   if (
     !user.delegated &&
     !user.roles.some((r) =>
-      ["staff", "head", "center_head", "executive"].includes(r),
+      ["staff", "pr", "head", "center_head", "executive"].includes(r),
     )
   )
     throw httpError(403, "ไม่มีสิทธิ์ดูสรุปผลงาน");

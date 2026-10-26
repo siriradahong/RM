@@ -384,7 +384,7 @@ describe(
       reopened.db.close();
     });
     it("allows writers to add shared categories, prevents duplicates and restricts management", async () => {
-      for (const as of ["staff", "head", "admin"]) {
+      for (const as of ["staff", "head", "admin", "pr"]) {
         const created = await request("/categories", {
           as,
           method: "POST",
@@ -411,7 +411,7 @@ describe(
             .get(created.json.id),
         );
       }
-      for (const as of ["pr", "executive"])
+      for (const as of ["executive"])
         assert.equal(
           (
             await request("/categories", {
@@ -876,37 +876,19 @@ describe(
         503,
       );
     });
-    it("supports combined roles but does not grant broader editing rights", async () => {
-      assert.equal(
-        (
-          await request("/activities", {
-            as: "multi",
-            method: "POST",
-            body: { title: "งานหลายบทบาท", unit_id: 1, status: "pending" },
-          })
-        ).status,
-        201,
-      );
-      assert.equal(
-        (
-          await request("/news", {
-            as: "multi",
-            method: "POST",
-            body: { activity_id: activityId, title: "ร่าง", body: "ข้อความ" },
-          })
-        ).status,
-        201,
-      );
-      assert.equal(
-        (
-          await request("/activities/" + activityId, {
-            as: "multi",
-            method: "PUT",
-            body: { ...payload(), version: 2 },
-          })
-        ).status,
-        403,
-      );
+    it("requires admin review for legacy combined roles instead of combining reporting and PR authority", async () => {
+      const loginResult = await login("multi");
+      assert.equal(loginResult.json.user.assignment_review_required, true);
+      assert.deepEqual(loginResult.json.user.roles, []);
+      for (const path of ["/activities", "/news"]) {
+        const r = await request(path, {
+          as: "multi",
+          method: "POST",
+          body: { title: "รอเลือกบทบาท", unit_id: 1, status: "pending" },
+        });
+        assert.equal(r.status, 403);
+      }
+      assert.equal((await request("/auth/me", { as: "multi" })).status, 200);
     });
     it("validates head scopes, invalidates sessions on user disable and protects self-admin", async () => {
       const users = (await request("/admin/users", { as: "admin" })).json;
@@ -1349,48 +1331,22 @@ describe(
         assignedWorks[2],
       );
     });
-    it("keeps head scope authority additive for staff with both roles", async () => {
-      const targetWork = app.locals.db
-        .prepare(
-          "SELECT id FROM works WHERE unit_id=2 AND id!=? AND active=1 LIMIT 1",
-        )
-        .get(assignedWorks[2]).id;
-      const created = await request("/activities", {
-        as: "hybrid",
-        method: "POST",
-        body: { ...payload(), unit_id: 2, work_id: targetWork },
-      });
-      assert.equal(created.status, 201, JSON.stringify(created.json));
-      assert.equal(
-        (await request("/activities/" + created.json.id, { as: "hybrid" })).json
-          .work_id,
-        targetWork,
-      );
-      const uploaded = await request("/files", {
-        as: "hybrid",
-        method: "POST",
-        body: uploadForm(2, targetWork),
-      });
-      assert.equal(uploaded.status, 201);
-      assert.equal(uploaded.json.unit_id, 2);
-      assert.equal(uploaded.json.work_id, targetWork);
-      const own = await request("/activities", {
-        as: "hybrid",
-        method: "POST",
-        body: payload(),
-      });
-      assert.equal(own.status, 201);
-      assert.equal(
-        (await request("/activities/" + own.json.id, { as: "hybrid" })).json
-          .work_id,
-        assignedWorks[1],
-      );
+    it("does not merge staff and head privileges for legacy multi-role accounts", async () => {
+      for (const body of [
+        payload(),
+        { ...payload(), unit_id: 2, work_id: assignedWorks[2] },
+      ])
+        assert.equal(
+          (await request("/activities", { as: "hybrid", method: "POST", body }))
+            .status,
+          403,
+        );
       assert.equal(
         (
-          await request("/activities", {
+          await request("/files", {
             as: "hybrid",
             method: "POST",
-            body: { ...payload(), unit_id: 3 },
+            body: uploadForm(2, assignedWorks[2]),
           })
         ).status,
         403,

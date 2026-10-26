@@ -1,3 +1,4 @@
+import { assignmentReviewRequired } from "../shared/user-assignment.js";
 import { migrateScope } from "./scope-schema.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
@@ -200,12 +201,19 @@ export function transaction(db, fn) {
 export function publicUser(row) {
   if (!row) return null;
   const { password_hash, ...user } = row;
+  const decoded = {
+    ...user,
+    roles: JSON.parse(row.roles),
+    scopes: JSON.parse(row.scopes),
+    work_scopes: JSON.parse(row.work_scopes || "[]"),
+  };
   return {
     ...user,
     roles: JSON.parse(row.roles),
     scopes: JSON.parse(row.scopes),
     work_scopes: JSON.parse(row.work_scopes || "[]"),
     active: Boolean(row.active),
+    assignment_review_required: assignmentReviewRequired(decoded),
   };
 }
 export function writeAudit(db, user, action, entity, id, before, after) {

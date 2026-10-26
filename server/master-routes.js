@@ -143,7 +143,7 @@ export function registerMasterRoutes(app, db) {
       app.post("/api/categories", (req, res) => {
         if (
           !req.user.roles.some((r) =>
-            ["staff", "head", "center_head", "admin"].includes(r),
+            ["staff", "pr", "head", "center_head", "admin"].includes(r),
           )
         )
           throw httpError(403, "ไม่มีสิทธิ์เพิ่มประเภทงาน");

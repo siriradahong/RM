@@ -692,7 +692,7 @@ export function Workspace({
   const reportRole =
     user.delegated ||
     user.roles.some((r) =>
-      ["staff", "head", "center_head", "executive"].includes(r),
+      ["staff", "pr", "head", "center_head", "executive"].includes(r),
     );
   const pages = [
     ["notifications", "แจ้งเตือน"],
@@ -2178,7 +2178,7 @@ export function LineRegistration({ onLogin }) {
                   />
                 </Field>
               ))}
-              <Field label="ตำแหน่งที่ขอใช้ในระบบ">
+              <Field label="ตำแหน่ง/บทบาทหลักที่ขอรับรอง">
                 <select
                   value={f.requested_role}
                   onChange={(e) =>
@@ -2194,7 +2194,8 @@ export function LineRegistration({ onLogin }) {
               </Field>
               <p>
                 เริ่มด้วยสิทธิ์เจ้าหน้าที่
-                ตำแหน่งหัวหน้าและผู้บริหารต้องได้รับการรับรอง
+                บทบาทที่ขอจะใช้ได้หลังผู้มีสิทธิ์รับรอง
+                โดยเปลี่ยนเป็นบทบาทหลักเพียงอย่างเดียว
               </p>
               <ErrorBox error={error} />
               <Button primary disabled={busy}>

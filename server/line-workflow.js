@@ -173,6 +173,11 @@ export function createLineWorkflow(db, dataDir, download) {
       return;
     }
     const user = effectiveUser(db, publicUser(userRow));
+    if (user.assignment_review_required)
+      return send(
+        event,
+        "บัญชีเดิมมีหลายบทบาทหรือหลายฝ่าย กรุณาให้แอดมินเลือกตำแหน่งหลักและสังกัดเดียวก่อนส่งรายงาน",
+      );
     if (event.type === "postback") {
       const p = new URLSearchParams(event.postback.data || ""),
         action = p.get("rm");
@@ -355,7 +360,9 @@ export function createLineWorkflow(db, dataDir, download) {
     if (
       event.type !== "message" ||
       !["text", "image", "file"].includes(event.message?.type) ||
-      !user.roles.some((r) => ["staff", "head", "center_head"].includes(r))
+      !user.roles.some((r) =>
+        ["staff", "pr", "head", "center_head"].includes(r),
+      )
     )
       return;
     if (

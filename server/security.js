@@ -25,7 +25,8 @@ export const isHeadForUnit = (user, unitId) =>
   user.roles.includes("head") && user.scopes.includes(unitId);
 export function canEdit(user, record) {
   return (
-    (user.roles.includes("staff") && record.owner_id === user.id) ||
+    (user.roles.some((r) => ["staff", "pr"].includes(r)) &&
+      record.owner_id === user.id) ||
     isHeadForUnit(user, record.unit_id) ||
     ((user.roles.includes("center_head") || user.delegated) &&
       (user.work_scopes || []).includes(record.work_id)) ||
@@ -34,7 +35,8 @@ export function canEdit(user, record) {
 }
 export function canCreate(user, unitId) {
   return (
-    (user.roles.includes("staff") && user.unit_id === unitId) ||
+    (user.roles.some((r) => ["staff", "pr"].includes(r)) &&
+      user.unit_id === unitId) ||
     isHeadForUnit(user, unitId) ||
     (user.roles.includes("center_head") && user.unit_id === unitId) ||
     (user.delegated && user.scopes.includes(unitId))
@@ -54,7 +56,7 @@ export function requireStaffAssignment(db, user) {
   return assignment;
 }
 export function createWorkAssignment(db, user, unitId, workId) {
-  // A head's explicit scope remains additive, even on a staff+head account.
+  // A head writes within their single primary division; dated delegations are separate.
   if (
     isHeadForUnit(user, unitId) ||
     (user.delegated && user.scopes.includes(unitId))
@@ -66,7 +68,7 @@ export function createWorkAssignment(db, user, unitId, workId) {
     (user.work_scopes || []).includes(workId)
   )
     return workId;
-  if (!user.roles.includes("staff"))
+  if (!user.roles.some((r) => ["staff", "pr"].includes(r)))
     throw httpError(403, "ไม่มีสิทธิ์บันทึกข้อมูลในฝ่ายนี้");
   const assignment = requireStaffAssignment(db, user);
   if (

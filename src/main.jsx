@@ -86,7 +86,7 @@ const roleNames = {
 const hasHeadScope = (user, unitId) =>
   user.roles.includes("head") && user.scopes.includes(Number(unitId));
 const staffOnly = (user) =>
-  user.roles.includes("staff") && !user.roles.includes("head");
+  user.roles.length === 1 && ["staff", "pr"].includes(user.roles[0]);
 const assignedWorkReady = (user, meta) =>
   !!meta.works.find(
     (w) => w.id === user.work_id && w.unit_id === user.unit_id && w.active,
@@ -448,16 +448,32 @@ function App() {
     ) : (
       <Login onLogin={authenticated} />
     );
+  if (user.assignment_review_required && !user.roles.includes("admin"))
+    return (
+      <section className="login-page">
+        <div className="panel form">
+          <h1>รอกำหนดตำแหน่งหลัก</h1>
+          <p>{user.name}</p>
+          <p>
+            บัญชีเดิมมีหลายบทบาทหรือหลายฝ่าย
+            กรุณาติดต่อแอดมินให้เลือกตำแหน่งหลักและสังกัดเดียวก่อนใช้งาน
+          </p>
+          <Button onClick={logout}>ออกจากระบบ</Button>
+        </div>
+      </section>
+    );
   if (!meta) return <Loading />;
   const canWrite =
       user.delegated ||
-      user.roles.some((r) => ["staff", "head", "center_head"].includes(r)),
+      user.roles.some((r) =>
+        ["staff", "pr", "head", "center_head"].includes(r),
+      ),
     isPr = user.roles.includes("pr"),
     isAdmin = user.roles.includes("admin");
   const canReport =
     user.delegated ||
     user.roles.some((r) =>
-      ["staff", "head", "center_head", "executive"].includes(r),
+      ["staff", "pr", "head", "center_head", "executive"].includes(r),
     );
   const current = path.split("/")[0],
     view = path.split("/")[1];
@@ -672,6 +688,12 @@ function App() {
           </button>
         </header>
         <main className="content" id="main-content" tabIndex={-1}>
+          {user.assignment_review_required && (
+            <Notice>
+              บัญชีเดิมมีหลายบทบาทหรือหลายฝ่าย
+              ให้กำหนดตำแหน่งหลักของตนและผู้ใช้ในหน้าแอดมินก่อนใช้งานส่วนรายงาน
+            </Notice>
+          )}
           {meta.demo?.activityCount > 0 && (
             <div className="demo-notice" role="note">
               <span>ข้อมูลสาธิต</span> รายการที่ขึ้นต้น [สาธิต]
@@ -1294,9 +1316,7 @@ function ImportPage() {
   const [reading, setReading] = useState(false);
   const uploaded = useRef(new Map());
   const intakeKey = useRef(crypto.randomUUID());
-  const unit = user.roles.includes("staff")
-    ? user.unit_id
-    : user.scopes[0] || user.unit_id;
+  const unit = staffOnly(user) ? user.unit_id : user.scopes[0] || user.unit_id;
   const work =
     meta.works.find((w) => w.id === user.work_id && w.unit_id === unit)?.id ||
     (user.roles.includes("center_head")
@@ -1415,6 +1435,10 @@ function ImportPage() {
         title="เพิ่มข้อมูล"
         description="ส่งรายงานเหมือนใน LINE พิมพ์ข้อความ แนบไฟล์ หรือส่งทั้งสองอย่างพร้อมกัน"
       />
+      <p className="muted">
+        รายงานในฐานะ: {meta.roles[user.roles[0]]} · {user.name} ·{" "}
+        {meta.units.find((u) => u.id === unit)?.name || "ยังไม่กำหนดฝ่าย"}
+      </p>
       <IntakeTabs active="web" />
       <section className="panel import-panel">
         <form className="form" onSubmit={submit}>
@@ -1494,7 +1518,7 @@ function ImportPage() {
             <details className="intake-details">
               <summary>รายละเอียดการบันทึก · {user.name}</summary>
               <p className="muted">
-                ฝ่ายรับเรื่อง:{" "}
+                ตำแหน่งหลัก: {meta.roles[user.roles[0]]} · ฝ่ายรับเรื่อง:{" "}
                 {meta.units.find((u) => u.id === unit)?.name || "ยังไม่ระบุ"} ·
                 ตรวจฝ่ายเจ้าของรายงานจากต้นฉบับอีกครั้ง
               </p>
@@ -1623,8 +1647,7 @@ function ActivityEditor({ id }) {
         user.scopes.includes(record?.unit_id))) ||
     (user.roles.includes("center_head") &&
       (fresh || user.work_scopes.includes(record?.work_id)));
-  const lockedWork =
-    user.roles.includes("staff") && !hasHeadScope(user, form?.unit_id);
+  const lockedWork = staffOnly(user) && !hasHeadScope(user, form?.unit_id);
   const needsAssignment = fresh && lockedWork && !assignedWorkReady(user, meta);
   const change = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -1880,8 +1903,7 @@ function ActivityEditor({ id }) {
                           u.id === form.unit_id ||
                           (u.active &&
                             (!editable ||
-                              (user.roles.includes("staff") &&
-                                u.id === user.unit_id) ||
+                              (staffOnly(user) && u.id === user.unit_id) ||
                               ((user.roles.includes("head") ||
                                 user.delegated) &&
                                 user.scopes.includes(u.id)) ||
@@ -2357,9 +2379,7 @@ function AttachmentPicker({ onClose, onPick, excludedIds, fresh }) {
     [page, setPage] = useState(1),
     [search, setSearch] = useState("");
   const uploaded = useRef(null);
-  const unit = user.roles.includes("staff")
-    ? user.unit_id
-    : user.scopes[0] || user.unit_id;
+  const unit = staffOnly(user) ? user.unit_id : user.scopes[0] || user.unit_id;
   const work = meta.works.find(
     (w) => w.id === user.work_id && w.unit_id === unit,
   )?.id;
@@ -3297,6 +3317,11 @@ function UsersAdmin() {
                     <tr key={u.id}>
                       <td>
                         <strong>{u.name}</strong>
+                        {u.assignment_review_required && (
+                          <small className="assignment-pending">
+                            รอเลือกตำแหน่งหลัก/สังกัดเดียว
+                          </small>
+                        )}
                         <small>
                           {u.username}
                           {u.id === user.id ? " · คุณ" : ""}
@@ -3304,7 +3329,9 @@ function UsersAdmin() {
                       </td>
                       <td>
                         {u.unit_name || "ส่วนกลาง"}
-                        {u.roles.includes("staff") && (
+                        {u.roles.some((r) =>
+                          ["staff", "pr", "center_head"].includes(r),
+                        ) && (
                           <small
                             className={!u.work_id ? "assignment-pending" : ""}
                           >
@@ -3358,9 +3385,9 @@ function UsersAdmin() {
         </Resource>
       </section>
       <Notice>
-        พนักงานแต่ละคนมี 1 ฝ่ายและ 1 งานตามที่แอดมินกำหนด
-        การแก้รายงานใช้สิทธิ์พนักงานเจ้าของรายการหรือหัวหน้าตามขอบเขตที่รับผิดชอบ
-        ส่วนการจัดทำและเผยแพร่ข่าวใช้สิทธิ์ประชาสัมพันธ์
+        แต่ละบัญชีมีตำแหน่ง/บทบาทหลัก 1 อย่าง เจ้าหน้าที่และประชาสัมพันธ์สังกัด
+        1 ฝ่าย 1 งาน หัวหน้าฝ่ายรับผิดชอบ 1 ฝ่าย หัวหน้าศูนย์รับผิดชอบ 1
+        งาน/ศูนย์ โดยเลือกจากโครงสร้างที่แอดมินกำหนด
       </Notice>
       {editing && (
         <UserForm
@@ -3377,55 +3404,44 @@ function UsersAdmin() {
 }
 function UserForm({ initial, onClose, onSaved }) {
   const { meta, notify } = useApp();
+  const initialRole = initial.roles.length === 1 ? initial.roles[0] : "";
   const [form, setForm] = useState({
-      ...initial,
-      work_scopes: initial.work_scopes || [],
-    }),
-    [busy, setBusy] = useState(false),
+    ...initial,
+    role: initialRole,
+    unit_id:
+      initialRole === "head"
+        ? initial.scopes?.length === 1
+          ? initial.scopes[0]
+          : ""
+        : initial.unit_id || "",
+    work_id:
+      initialRole === "center_head"
+        ? initial.work_scopes?.length === 1
+          ? initial.work_scopes[0]
+          : ""
+        : initial.work_id || "",
+  });
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [separateAffiliation, setSeparateAffiliation] = useState(
-    Boolean(
-      initial.roles.includes("staff") &&
-      initial.roles.includes("head") &&
-      initial.unit_id &&
-      !initial.scopes.includes(initial.unit_id),
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const needsDivision = ["staff", "head", "center_head", "pr"].includes(
+      form.role,
     ),
-  );
-  const set = (k, v) =>
-    setForm((f) => {
-      if (k === "scopes" && f.roles.includes("head") && !separateAffiliation)
-        return {
-          ...f,
-          scopes: v,
-          unit_id: v[0] || null,
-          work_id: f.unit_id === v[0] ? f.work_id : null,
-        };
-      if (
-        k === "roles" &&
-        v.includes("head") &&
-        v.includes("staff") &&
-        !f.unit_id
-      )
-        return { ...f, roles: v, unit_id: f.scopes[0] || null };
-      return { ...f, [k]: v };
-    });
+    needsWork = ["staff", "center_head", "pr"].includes(form.role);
   async function save(e) {
     e.preventDefault();
     setBusy(true);
+    setError("");
     try {
+      const unit = needsDivision ? Number(form.unit_id) : null,
+        work = needsWork ? Number(form.work_id) : null;
       const payload = {
         ...form,
-        // Hidden staff fields must not assign a department to a new head account.
-        // Retain pre-existing affiliation metadata for other roles on edit.
-        unit_id: form.roles.some((r) => ["staff", "center_head"].includes(r))
-          ? form.unit_id
-            ? Number(form.unit_id)
-            : null
-          : initial.unit_id || null,
-        work_id:
-          form.roles.includes("staff") && form.work_id
-            ? Number(form.work_id)
-            : null,
+        roles: [form.role],
+        unit_id: unit,
+        work_id: work,
+        scopes: form.role === "head" ? [unit] : [],
+        work_scopes: form.role === "center_head" ? [work] : [],
         line_user_id: form.line_user_id || null,
         password: form.password || undefined,
       };
@@ -3433,7 +3449,7 @@ function UserForm({ initial, onClose, onSaved }) {
         method: form.id ? "PUT" : "POST",
         body: payload,
       });
-      notify("บันทึกบัญชีและสิทธิ์แล้ว");
+      notify("บันทึกตำแหน่งหลักและสังกัดแล้ว");
       onSaved();
     } catch (e) {
       setError(e.message + (e.details ? " · " + e.details.join(" / ") : ""));
@@ -3447,6 +3463,86 @@ function UserForm({ initial, onClose, onSaved }) {
       onClose={onClose}
     >
       <form className="form" onSubmit={save}>
+        {initial.assignment_review_required && (
+          <Notice>
+            บัญชีเดิมมีหลายบทบาทหรือหลายฝ่าย
+            เลือกตำแหน่งหลักและฝ่ายเดียวให้ตรงกับหน้าที่ปัจจุบันก่อนบันทึก
+          </Notice>
+        )}
+        <Field label="ตำแหน่ง/บทบาทหลัก *">
+          <select
+            required
+            value={form.role}
+            onChange={(e) =>
+              setForm((f) => ({
+                ...f,
+                role: e.target.value,
+                unit_id: "",
+                work_id: "",
+              }))
+            }
+          >
+            <option value="">เลือกตำแหน่งหลัก 1 อย่าง</option>
+            {Object.entries(meta.roles).map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {needsDivision && (
+          <Field
+            label={
+              form.role === "head" ? "ฝ่ายที่รับผิดชอบ *" : "ฝ่าย/กลุ่มงาน"
+            }
+          >
+            <select
+              required
+              value={form.unit_id || ""}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  unit_id: Number(e.target.value) || "",
+                  work_id: "",
+                }))
+              }
+            >
+              <option value="">เลือกฝ่ายหลัก 1 ฝ่าย</option>
+              <UnitOptions
+                units={meta.units}
+                allowed={meta.units.filter(
+                  (u) => u.active && u.kind !== "section",
+                )}
+              />
+            </select>
+          </Field>
+        )}
+        {needsWork && (
+          <Field
+            label={
+              form.role === "center_head"
+                ? "งาน/ศูนย์ที่รับผิดชอบ *"
+                : "งานที่รับผิดชอบ *"
+            }
+          >
+            <select
+              required
+              disabled={!form.unit_id}
+              value={form.work_id || ""}
+              onChange={(e) => set("work_id", Number(e.target.value) || "")}
+            >
+              <option value="">
+                {form.unit_id
+                  ? "เลือกงานหลัก 1 งาน"
+                  : "เลือกฝ่ายก่อน แล้วเลือกงาน"}
+              </option>
+              <WorkOptions works={meta.works} unitId={form.unit_id} />
+            </select>
+          </Field>
+        )}
+        {["admin", "executive"].includes(form.role) && (
+          <p className="notice">สังกัดระดับสำนักสาธารณสุขและสิ่งแวดล้อม</p>
+        )}
         <div className="form-row">
           <Field label="ชื่อผู้ใช้ *">
             <input
@@ -3482,158 +3578,8 @@ function UserForm({ initial, onClose, onSaved }) {
             onChange={(e) => set("password", e.target.value)}
           />
         </Field>
-        <div>
-          <span className="field-label">บทบาท *</span>
-          <div className="checkbox-grid">
-            {Object.entries(meta.roles).map(([key, name]) => (
-              <label key={key}>
-                <input
-                  type="checkbox"
-                  checked={form.roles.includes(key)}
-                  onChange={(e) =>
-                    set(
-                      "roles",
-                      e.target.checked
-                        ? [...form.roles, key]
-                        : form.roles.filter((r) => r !== key),
-                    )
-                  }
-                />
-                {name}
-              </label>
-            ))}
-          </div>
-        </div>
-        {form.roles.includes("head") && (
-          <div>
-            <span className="field-label">หน่วยงานที่หัวหน้ารับผิดชอบ *</span>
-            <div className="checkbox-grid">
-              {meta.units
-                .filter((u) => u.active && u.kind !== "section")
-                .map((u) => (
-                  <label key={u.id}>
-                    <input
-                      type="checkbox"
-                      checked={form.scopes.includes(u.id)}
-                      onChange={(e) =>
-                        set(
-                          "scopes",
-                          e.target.checked
-                            ? [...form.scopes, u.id]
-                            : form.scopes.filter((id) => id !== u.id),
-                        )
-                      }
-                    />
-                    {u.name}
-                  </label>
-                ))}
-            </div>
-          </div>
-        )}
-        {form.roles.some((r) => ["staff", "center_head"].includes(r)) && (
-          <section className="account-assignment" aria-label="กำหนดฝ่ายและงาน">
-            <h3>ฝ่ายและงานสำหรับบทบาทพนักงาน</h3>
-            {form.roles.includes("head") && (
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={separateAffiliation}
-                  onChange={(e) => {
-                    setSeparateAffiliation(e.target.checked);
-                    if (!e.target.checked)
-                      setForm((f) => ({
-                        ...f,
-                        unit_id: f.scopes[0] || null,
-                        work_id: f.unit_id === f.scopes[0] ? f.work_id : null,
-                      }));
-                  }}
-                />
-                ฝ่ายปฏิบัติงานต่างจากฝ่ายที่ดูแล
-              </label>
-            )}
-            {form.roles.includes("head") && !separateAffiliation ? (
-              <Field label="ฝ่ายที่รับผิดชอบ">
-                <input
-                  readOnly
-                  value={
-                    meta.units.find((u) => u.id === Number(form.unit_id))
-                      ?.name || "เลือกฝ่ายที่รับผิดชอบด้านบน"
-                  }
-                />
-              </Field>
-            ) : (
-              <>
-                {" "}
-                <Field label="ฝ่าย/กลุ่มงาน">
-                  <select
-                    value={form.unit_id || ""}
-                    required
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        unit_id: e.target.value,
-                        work_id: "",
-                      }))
-                    }
-                  >
-                    <option value="">เลือกฝ่าย/กลุ่มงาน</option>
-                    <UnitOptions
-                      units={meta.units}
-                      allowed={meta.units.filter(
-                        (u) => u.active || u.id === form.unit_id,
-                      )}
-                    />
-                  </select>
-                </Field>
-              </>
-            )}
-            <Field label="งานที่รับผิดชอบ *">
-              <select
-                required
-                disabled={!form.unit_id}
-                value={form.work_id || ""}
-                onChange={(e) => set("work_id", e.target.value)}
-              >
-                <option value="">
-                  {!form.unit_id
-                    ? "เลือกฝ่ายก่อน แล้วเลือกงาน"
-                    : "เลือกงานในฝ่ายที่สังกัด"}
-                </option>
-                <WorkOptions
-                  works={meta.works.filter((w) => w.active)}
-                  unitId={form.unit_id}
-                  selected={form.work_id}
-                />
-              </select>
-            </Field>
-          </section>
-        )}
-        {form.roles.includes("center_head") && (
-          <fieldset>
-            <legend>ศูนย์/งานที่หัวหน้าศูนย์รับผิดชอบ</legend>
-            {meta.works
-              .filter((w) => w.active && w.unit_id === Number(form.unit_id))
-              .map((w) => (
-                <label className="check" key={w.id}>
-                  <input
-                    type="checkbox"
-                    checked={form.work_scopes.includes(w.id)}
-                    onChange={(e) =>
-                      set(
-                        "work_scopes",
-                        e.target.checked
-                          ? [...form.work_scopes, w.id]
-                          : form.work_scopes.filter((id) => id !== w.id),
-                      )
-                    }
-                  />
-                  {w.name}
-                </label>
-              ))}
-          </fieldset>
-        )}
         <div className="form-row">
-          <Field label="ตำแหน่ง">
+          <Field label="ชื่อตำแหน่งตามข้อมูลบุคลากร (ถ้ามี)">
             <input
               value={form.position || ""}
               onChange={(e) => set("position", e.target.value)}
@@ -4059,7 +4005,8 @@ function AuditChanges({ entry }) {
     username: "ชื่อผู้ใช้",
     name: "ชื่อ",
     title: "ชื่อเรื่อง",
-    roles: "บทบาท",
+    roles: "ตำแหน่ง/บทบาทหลัก",
+    assignment_review_required: "รอตรวจตำแหน่งหลักและสังกัด",
     scopes: "ขอบเขตหน่วยงานของหัวหน้า",
     active: "เปิดใช้งาน",
     unit_id: "รหัสฝ่าย/กลุ่มงาน",

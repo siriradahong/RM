@@ -129,7 +129,7 @@ export function registerProposalRoutes(app, db) {
         if (
           !u ||
           !JSON.parse(u.roles).some((x) =>
-            ["staff", "head", "center_head"].includes(x),
+            ["staff", "pr", "head", "center_head"].includes(x),
           )
         )
           throw httpError(400, "เลือกผู้รับผิดชอบที่ปฏิบัติงานในฝ่ายโครงการ");

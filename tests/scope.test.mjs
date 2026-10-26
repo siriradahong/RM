@@ -735,14 +735,11 @@ describe(
         200,
       );
       const source = (await req("/activities/" + peerReport.id, "peer")).data;
-      db.prepare("UPDATE users SET scopes='[1,2]' WHERE id=?").run(users.head2);
-      const moved = await req("/activities/" + source.id, "head2", "PUT", {
-        ...source,
-        unit_id: 2,
-        work_id: works[2],
-        file_ids: [],
-        inbox_ids: [],
-      });
+      // Simulate a historical ownership correction; current heads cannot select two primary divisions.
+      db.prepare(
+        "UPDATE activities SET unit_id=2,work_id=?,version=version+1 WHERE id=?",
+      ).run(works[2], source.id);
+      const moved = await req("/activities/" + source.id, "head2");
       assert.equal(moved.status, 200);
       const limited = (await req("/projects/" + projectId, "head")).data;
       assert.ok(!limited.performance.sources.some((a) => a.id === source.id));
@@ -751,13 +748,9 @@ describe(
         false,
       );
       assert.ok(!JSON.stringify(limited).includes(source.title));
-      await req("/activities/" + source.id, "head2", "PUT", {
-        ...moved.data,
-        unit_id: 1,
-        work_id: works[1],
-        file_ids: [],
-        inbox_ids: [],
-      });
+      db.prepare(
+        "UPDATE activities SET unit_id=1,work_id=?,version=version+1 WHERE id=?",
+      ).run(works[1], source.id);
       db.prepare("UPDATE users SET scopes='[2]' WHERE id=?").run(users.head2);
     });
     it("stores referenced budgets and planned communities without invented targets", async () => {

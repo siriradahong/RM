@@ -66,7 +66,7 @@ function scope(user) {
     parts.push(`p.work_id IN (${user.work_scopes.map(() => "?")})`);
     args.push(...user.work_scopes);
   }
-  if (user.roles.includes("staff")) {
+  if (user.roles.some((r) => ["staff", "pr"].includes(r))) {
     parts.push(
       "EXISTS(SELECT 1 FROM project_tasks t WHERE t.project_id=p.id AND t.assignee_id=?)",
     );
@@ -149,7 +149,7 @@ export function registerProjectRoutes(app, db) {
         overdue: t.status !== "completed" && t.due_date < today(),
         can_submit:
           req.user.roles.some((r) =>
-            ["staff", "head", "center_head"].includes(r),
+            ["staff", "pr", "head", "center_head"].includes(r),
           ) && t.assignee_id === req.user.id,
       })),
       history: db
@@ -190,7 +190,7 @@ export function registerProjectRoutes(app, db) {
       : null;
     return db
       .prepare(
-        "SELECT id,name,work_id FROM users WHERE active=1 AND unit_id=? AND EXISTS(SELECT 1 FROM json_each(users.roles) WHERE value='staff') ORDER BY name",
+        "SELECT id,name,work_id FROM users WHERE active=1 AND unit_id=? AND EXISTS(SELECT 1 FROM json_each(users.roles) WHERE value IN ('staff','pr')) ORDER BY name",
       )
       .all(unit)
       .filter(

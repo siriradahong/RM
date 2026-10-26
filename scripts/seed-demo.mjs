@@ -86,6 +86,8 @@ export async function seedDemo({
         username: "demo.head",
         displayName: "[สาธิต] หัวหน้าฝ่ายสำหรับตรวจรายงาน",
         roles: ["head"],
+        unitName: demoUnitAccounts[0].unitName,
+        workName: demoUnitAccounts[0].workName,
       },
       {
         key: "executive",
@@ -160,7 +162,7 @@ export async function seedDemo({
       "| --- | --- | --- |",
       ...definitions.map(
         (a) =>
-          `| ${a.username} | ${a.roles.join(", ")} | ${a.unitName || (a.key === "head" ? "รับผิดชอบทุกฝ่ายสาธิต" : "ส่วนกลาง")} ${a.workName || ""} |`,
+          `| ${a.username} | ${a.roles.join(", ")} | ${a.unitName || (a.key === "head" ? "ฝ่ายสาธิตหลัก" : "ส่วนกลาง")} ${a.workName || ""} |`,
       ),
       "",
       "เริ่มดูภาพรวมด้วย demo.executive; ลองนำเข้าและแก้รายงานด้วยบัญชี demo.staff.*; ลองตรวจรายงานด้วย demo.head; ลองข่าวด้วย demo.pr; ลองจัดบัญชีและดูประวัติด้วย demo.admin.",
@@ -197,13 +199,9 @@ export async function seedDemo({
                 : "[สาธิต] " + a.displayName,
               passwordHash,
               assignment?.unit.id || null,
-              assignment?.work.id || null,
+              a.key === "head" ? null : assignment?.work.id || null,
               JSON.stringify(a.roles),
-              JSON.stringify(
-                a.key === "head"
-                  ? [...unitRecords.values()].map((v) => v.unit.id)
-                  : [],
-              ),
+              JSON.stringify(a.key === "head" ? [assignment.unit.id] : []),
               now,
             ).lastInsertRowid,
         );

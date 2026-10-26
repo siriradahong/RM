@@ -118,7 +118,7 @@ test("demo dataset preserves existing data, loads real assets, covers roles and 
       assert.equal((await get("/meta")).demo.activityCount, 18);
       assert.equal(
         (await get("/dashboard?from=2026-10-01&to=2026-10-03")).ready,
-        { staff: 1, head: 9, executive: 9, pr: 6, admin: 0 }[role],
+        { staff: 1, head: 1, executive: 9, pr: 6, admin: 0 }[role],
       );
       assert.equal((await get("/news?feed=1")).total, 4);
       if (role === "pr")

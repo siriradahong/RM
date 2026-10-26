@@ -393,7 +393,8 @@ export async function downloadLineMedia(db, dataDir, row, user) {
         400,
         "กรุณาให้ผู้ดูแลระบบกำหนดฝ่ายและงานให้ผู้รายงานก่อน",
       );
-    if (owner.roles.includes("staff")) requireStaffAssignment(db, owner);
+    if (owner.roles.some((r) => ["staff", "pr"].includes(r)))
+      requireStaffAssignment(db, owner);
     else if (
       !db
         .prepare(

@@ -177,7 +177,7 @@ export function registerLineLogin(app, db, cookieOptions) {
         position: z.string().trim().min(1).max(200),
         personnel_type: z.string().trim().min(1).max(100),
         requested_role: z
-          .enum(["staff", "head", "center_head", "executive"])
+          .enum(["staff", "pr", "head", "center_head", "executive"])
           .default("staff"),
       })
       .parse(req.body);
@@ -281,22 +281,50 @@ export function resolveRole(db, actor, requestId, approve, reason = "") {
       ).run(r.user_id, r.unit_id, r.work_id, actor.id);
       db.prepare("DELETE FROM sessions WHERE user_id=?").run(r.user_id);
     } else if (approve) {
-      const u = db.prepare("SELECT * FROM users WHERE id=?").get(r.user_id),
-        roles = [...new Set([...JSON.parse(u.roles), r.requested_role])];
+      const u = db.prepare("SELECT * FROM users WHERE id=?").get(r.user_id);
+      if (
+        !["head", "pr", "center_head", "executive"].includes(r.requested_role)
+      )
+        throw httpError(400, "บทบาทที่ขอรับรองไม่ถูกต้อง");
+      const unit = r.requested_role === "executive" ? null : r.unit_id,
+        work = ["center_head", "pr"].includes(r.requested_role)
+          ? r.work_id
+          : null;
+      if (
+        (r.requested_role !== "executive" && !unit) ||
+        (["center_head", "pr"].includes(r.requested_role) && !work)
+      )
+        throw httpError(400, "คำขอขาดฝ่ายหรืองาน/ศูนย์หลัก");
+      if (
+        unit &&
+        !db
+          .prepare(
+            "SELECT id FROM units WHERE id=? AND active=1 AND kind!='section'",
+          )
+          .get(unit)
+      )
+        throw httpError(400, "ฝ่ายไม่พร้อมใช้งาน");
+      if (
+        work &&
+        !db
+          .prepare("SELECT id FROM works WHERE id=? AND unit_id=? AND active=1")
+          .get(work, unit)
+      )
+        throw httpError(400, "งาน/ศูนย์ไม่อยู่ในฝ่ายที่เลือก");
+      const roles = JSON.stringify([r.requested_role]);
       db.prepare(
-        "UPDATE users SET roles=?,scopes=?,work_scopes=? WHERE id=?",
+        "UPDATE users SET roles=?,unit_id=?,work_id=?,scopes=?,work_scopes=? WHERE id=?",
       ).run(
-        JSON.stringify(roles),
-        JSON.stringify(
-          r.requested_role === "head" ? [r.unit_id] : JSON.parse(u.scopes),
-        ),
-        JSON.stringify(
-          r.requested_role === "center_head"
-            ? [r.work_id]
-            : JSON.parse(u.work_scopes),
-        ),
+        roles,
+        unit,
+        work,
+        JSON.stringify(r.requested_role === "head" ? [unit] : []),
+        JSON.stringify(r.requested_role === "center_head" ? [work] : []),
         u.id,
       );
+      db.prepare(
+        "INSERT INTO personnel_history(user_id,unit_id,work_id,roles,effective_at,recorded_by) VALUES(?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?)",
+      ).run(u.id, unit, work, roles, actor.id);
       db.prepare("DELETE FROM sessions WHERE user_id=?").run(u.id);
     }
     writeAudit(db, actor, "พิจารณารับรองตำแหน่ง", "role_request", r.id, r, {

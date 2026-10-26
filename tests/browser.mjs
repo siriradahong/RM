@@ -50,15 +50,26 @@ app.locals.db
     "ผู้ทดสอบระบบ",
     await hashPassword(password),
     1,
-    JSON.stringify(["admin", "staff", "head", "executive", "pr"]),
-    "[1,2]",
+    JSON.stringify(["admin"]),
+    "[]",
   );
 const assignedWork = app.locals.db
   .prepare("SELECT id FROM works WHERE unit_id=1 AND name='งานสาธารณสุขชุมชน'")
   .get().id;
-app.locals.db
-  .prepare("UPDATE users SET work_id=? WHERE username=?")
-  .run(assignedWork, "browseradmin");
+for (const role of ["head", "pr"])
+  app.locals.db
+    .prepare(
+      "INSERT INTO users(username,name,password_hash,unit_id,work_id,roles,scopes) VALUES(?,?,?,?,?,?,?)",
+    )
+    .run(
+      "flow." + role,
+      "ทดสอบ " + role,
+      await hashPassword(password),
+      1,
+      role === "head" ? null : assignedWork,
+      JSON.stringify([role]),
+      role === "head" ? "[1]" : "[]",
+    );
 let browser, server;
 try {
   server = await new Promise((resolve, reject) => {
@@ -85,6 +96,31 @@ try {
   page.setDefaultTimeout(12000);
   page.on("pageerror", (e) => errors.push(e.message));
   await mkdir("test-results", { recursive: true });
+  async function loginFlow(role) {
+    await page.context().clearCookies();
+    await page.goto(origin + "/");
+    await page
+      .getByLabel("ชื่อผู้ใช้", { exact: true })
+      .fill(role === "admin" ? "browseradmin" : "flow." + role);
+    await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+    await page
+      .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
+      .click();
+    await page
+      .getByRole("heading", {
+        name:
+          role === "admin"
+            ? "ดูแลระบบ"
+            : role === "pr"
+              ? "จัดการข่าวประชาสัมพันธ์"
+              : role === "head"
+                ? "แดชบอร์ดหน่วยงาน"
+                : "รายงานของฉัน",
+        exact: true,
+      })
+      .waitFor();
+  }
+
   await page.goto(origin);
   await page
     .getByRole("heading", { name: "เข้าสู่ระบบ", exact: true })
@@ -96,10 +132,10 @@ try {
   await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill("browseradmin");
   await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await page.getByRole("heading", { name: "ดูแลระบบ", exact: true }).waitFor();
   await page
-    .getByRole("heading", { name: "ภาพรวมสำนัก", exact: true })
+    .getByRole("heading", { name: "บัญชีผู้ใช้งาน", exact: true })
     .waitFor();
-  await page.getByText("ยังไม่มีรายงานในช่วงนี้", { exact: true }).waitFor();
   await page.screenshot({
     path: "test-results/dashboard-empty-desktop.png",
     fullPage: true,
@@ -144,35 +180,23 @@ try {
     path: "test-results/admin-desktop.png",
     fullPage: true,
   });
-  // A head chooses responsible departments once; hidden staff inputs cannot
-  // accidentally assign the new head to a department selected before switching roles.
+  // One role determines the available division/work fields, with no role checkboxes.
   await page.getByRole("button", { name: "เพิ่มบัญชี", exact: true }).click();
   await page.getByLabel("ชื่อผู้ใช้ *", { exact: true }).fill("head.real");
   await page.getByLabel("ชื่อ–นามสกุล *", { exact: true }).fill("หัวหน้าทดสอบ");
   await page
     .getByLabel("รหัสผ่านอย่างน้อย 12 ตัวอักษร *", { exact: true })
     .fill("New-head-password!");
-  await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
   await page
-    .getByLabel("งานที่รับผิดชอบ *", { exact: true })
-    .selectOption(String(assignedWork));
-  await page
-    .getByRole("checkbox", { name: "เจ้าหน้าที่ปฏิบัติงาน", exact: true })
-    .uncheck();
-  await page
-    .getByRole("checkbox", { name: "หัวหน้าฝ่าย", exact: true })
-    .check();
-  assert.equal(
-    await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).count(),
-    0,
-  );
+    .getByLabel("ตำแหน่ง/บทบาทหลัก *", { exact: true })
+    .selectOption("head");
   assert.equal(
     await page.getByLabel("งานที่รับผิดชอบ *", { exact: true }).count(),
     0,
   );
   await page
-    .getByRole("checkbox", { name: "ฝ่ายป้องกันและควบคุมโรค", exact: true })
-    .check();
+    .getByLabel("ฝ่ายที่รับผิดชอบ *", { exact: true })
+    .selectOption("2");
   await page.screenshot({
     path: "test-results/head-single-assignment-desktop.png",
     fullPage: true,
@@ -187,45 +211,36 @@ try {
   const headAccount = app.locals.db
     .prepare("SELECT * FROM users WHERE username='head.real'")
     .get();
-  assert.equal(headAccount.unit_id, null);
+  assert.equal(headAccount.unit_id, 2);
   assert.equal(headAccount.work_id, null);
+  assert.deepEqual(JSON.parse(headAccount.roles), ["head"]);
   assert.deepEqual(JSON.parse(headAccount.scopes), [2]);
   await page
     .getByRole("row")
     .filter({ hasText: "head.real" })
     .getByRole("button", { name: "แก้ไข", exact: true })
     .click();
-  assert.equal(
-    await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).count(),
-    0,
-  );
-  assert.equal(
-    await page
-      .getByRole("checkbox", { name: "ฝ่ายป้องกันและควบคุมโรค", exact: true })
-      .isChecked(),
-    true,
-  );
   await page
-    .getByRole("checkbox", { name: "เจ้าหน้าที่ปฏิบัติงาน", exact: true })
-    .check();
-  await page
-    .getByRole("checkbox", {
-      name: "ฝ่ายปฏิบัติงานต่างจากฝ่ายที่ดูแล",
-      exact: true,
-    })
-    .check();
+    .getByLabel("ตำแหน่ง/บทบาทหลัก *", { exact: true })
+    .selectOption("pr");
+  assert.equal(
+    await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).inputValue(),
+    "",
+  );
   await page.getByLabel("ฝ่าย/กลุ่มงาน", { exact: true }).selectOption("1");
   await page
     .getByLabel("งานที่รับผิดชอบ *", { exact: true })
     .selectOption(String(assignedWork));
   await page.getByRole("button", { name: "บันทึกบัญชี", exact: true }).click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
-  const hybridAccount = app.locals.db
+  const reassigned = app.locals.db
     .prepare("SELECT * FROM users WHERE id=?")
     .get(headAccount.id);
-  assert.equal(hybridAccount.unit_id, 1);
-  assert.equal(hybridAccount.work_id, assignedWork);
-  assert.deepEqual(JSON.parse(hybridAccount.scopes), [2]);
+  assert.deepEqual(JSON.parse(reassigned.roles), ["pr"]);
+  assert.deepEqual(JSON.parse(reassigned.scopes), []);
+  assert.equal(reassigned.unit_id, 1);
+  assert.equal(reassigned.work_id, assignedWork);
+  await loginFlow("head");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page
     .locator(".sidebar nav")
@@ -251,17 +266,14 @@ try {
     .fill(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" }));
   const workSelect = page.getByLabel("งานตามฝ่าย/กลุ่มงาน", { exact: true });
   await workSelect.selectOption({ label: "งานสาธารณสุขชุมชน" });
-  await page.getByLabel("ฝ่าย/กลุ่มงาน *", { exact: true }).selectOption("2");
-  assert.equal(await workSelect.inputValue(), "");
   assert.equal(
-    await workSelect
-      .locator("option")
-      .filter({ hasText: "งานสาธารณสุขชุมชน" })
+    await page
+      .getByLabel("ฝ่าย/กลุ่มงาน *", { exact: true })
+      .locator('option[value="2"]')
       .count(),
     0,
+    "A single-division head cannot select another division",
   );
-  await workSelect.selectOption({ label: "งานป้องกันโรคติดต่อ" });
-  await page.getByLabel("ฝ่าย/กลุ่มงาน *", { exact: true }).selectOption("1");
   assert.equal(await workSelect.inputValue(), String(assignedWork));
   await page
     .getByRole("button", { name: "เพิ่มประเภทงาน", exact: true })
@@ -335,8 +347,8 @@ try {
   await page
     .getByRole("button", { name: "ส่งให้ประชาสัมพันธ์พิจารณา", exact: true })
     .click();
-  await page.getByRole("button", { name: "ฟีดข่าวภายใน", exact: true }).click();
-  await page.getByRole("button", { name: "จัดการข่าว", exact: true }).click();
+  await loginFlow("pr");
+  await page.goto(origin + "/#news");
   await page.getByRole("button", { name: "จัดทำข่าว", exact: true }).click();
   await page
     .getByLabel("เนื้อหาข่าว *", { exact: true })
@@ -357,11 +369,12 @@ try {
   await page
     .getByRole("heading", { name: "ประชุมเครือข่าย อสม.", exact: true })
     .waitFor();
+  await loginFlow("head");
   for (const width of [390, 768]) {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto(origin + "/#dashboard/overview");
+    await page.goto(origin + "/#dashboard/mine");
     await page
-      .getByRole("heading", { name: "ภาพรวมสำนัก", exact: true })
+      .getByRole("heading", { name: "รายงานของฉัน", exact: true })
       .waitFor();
     await page
       .getByRole("button", { name: "ประชุมเครือข่าย อสม.", exact: true })
@@ -444,6 +457,7 @@ try {
     });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await loginFlow("admin");
   await page.goto(origin + "/#admin");
   await page
     .getByRole("tab", { name: "หน่วยงานและหมวดข้อมูล", exact: true })
@@ -478,6 +492,7 @@ try {
   await page.getByRole("button", { name: "บันทึก", exact: true }).click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page.getByText("ประเภทจากผู้ดูแลระบบ", { exact: true }).waitFor();
+  await loginFlow("head");
   await page.goto(origin + "/#activity/1");
   await page.reload();
   await page

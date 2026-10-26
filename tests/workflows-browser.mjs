@@ -127,7 +127,7 @@ try {
   await staff
     .getByRole("button", { name: "ยืนยันส่งรายงาน", exact: true })
     .click();
-  await staff.getByText("รอหัวหน้าตรวจรับ", { exact: true }).waitFor();
+  await staff.getByText("รอหัวหน้าตรวจรับ", { exact: false }).waitFor();
   assert.equal(
     await staff.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,

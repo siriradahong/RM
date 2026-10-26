@@ -675,7 +675,7 @@ export function registerDataRoutes(app, db, dataDir) {
     (req, res, next) => {
       if (
         !req.user.roles.some((r) =>
-          ["staff", "head", "center_head"].includes(r),
+          ["staff", "pr", "head", "center_head"].includes(r),
         )
       )
         return next(httpError(403, "ไม่มีสิทธิ์นำเข้าไฟล์"));
@@ -837,7 +837,7 @@ export function registerDataRoutes(app, db, dataDir) {
     if (req.query.attachable === "1") {
       conditions.push("f.activity_id IS NULL");
       const access = [];
-      if (req.user.roles.includes("staff")) {
+      if (req.user.roles.some((r) => ["staff", "pr"].includes(r))) {
         access.push("f.owner_id=?");
         params.push(req.user.id);
       }

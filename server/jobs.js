@@ -48,7 +48,8 @@ export async function runJobs(db, now = new Date(), dataDir = null) {
   const users = db
     .prepare("SELECT * FROM users WHERE active=1")
     .all()
-    .map((u) => effectiveUser(db, publicUser(u), now.toISOString()));
+    .map((u) => effectiveUser(db, publicUser(u), now.toISOString()))
+    .filter((u) => !u.assignment_review_required);
   if (
     settings.reminders_enabled &&
     (!settings.skip_weekends || ![0, 6].includes(weekDay)) &&
@@ -138,7 +139,7 @@ export async function runJobs(db, now = new Date(), dataDir = null) {
       ];
     for (const user of users.filter((u) =>
       u.roles.some((r) =>
-        ["staff", "head", "center_head", "executive"].includes(r),
+        ["staff", "pr", "head", "center_head", "executive"].includes(r),
       ),
     ))
       for (const period of periods) {
