@@ -192,78 +192,9 @@ export function EditDialog({
 const options = (items) =>
   items.map((i) => ({ value: i.id, label: i.name || i.title }));
 export function AccountTools({ user, meta, navigate }) {
-  const pref = useData("/preferences"),
-    history = useData("/personnel/" + user.id + "/history");
-  const [form, setForm] = useState(null),
-    [code, setCode] = useState(""),
-    [message, setMessage] = useState(""),
-    [error, setError] = useState("");
+  const history = useData("/personnel/" + user.id + "/history");
   return (
     <div className="scope-account">
-      <h3>การแจ้งเตือนและ LINE</h3>
-      <DataState resource={pref}>
-        {(p) => (
-          <form
-            className="form"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              try {
-                await api("/preferences", { method: "PUT", body: form || p });
-                setMessage(
-                  "บันทึกเวลาที่ต้องการแล้ว ค่ากลางกำหนดว่าจะเปิดแจ้งเตือนหรือไม่",
-                );
-              } catch (e) {
-                setError(e.message);
-              }
-            }}
-          >
-            <div className="form-row">
-              <Field label="เวลาแจ้งเตือน">
-                <input
-                  type="time"
-                  value={(form || p).reminder_time}
-                  onChange={(e) =>
-                    setForm({ ...p, ...form, reminder_time: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label="ช่องทาง">
-                <select
-                  value={(form || p).channel}
-                  onChange={(e) =>
-                    setForm({ ...p, ...form, channel: e.target.value })
-                  }
-                >
-                  <option value="web">ในเว็บ</option>
-                  <option value="line">LINE ส่วนตัว</option>
-                </select>
-              </Field>
-            </div>
-            <Button>บันทึกการแจ้งเตือน</Button>
-          </form>
-        )}
-      </DataState>
-      <p>
-        สถานะ LINE: {user.line_user_id ? "ผูกบัญชีแล้ว" : "ยังไม่ได้ผูกบัญชี"}
-      </p>
-      <Button
-        onClick={async () => {
-          try {
-            const d = await api("/me/line-code", { method: "POST", body: {} });
-            setCode(d.code);
-          } catch (e) {
-            setError(e.message);
-          }
-        }}
-      >
-        สร้างรหัสผูก LINE
-      </Button>
-      {code && (
-        <p className="notice">
-          ส่งข้อความ <strong>ผูกบัญชี {code}</strong> ในแชตส่วนตัวของ LINE OA
-          ภายใน 10 นาที
-        </p>
-      )}
       <Button onClick={() => navigate("workspace/approvals")}>
         คำขอและการมอบอำนาจ
       </Button>
@@ -283,8 +214,6 @@ export function AccountTools({ user, meta, navigate }) {
         </DataState>
       </details>
       <Transfer user={user} meta={meta} />
-      {message && <p role="status">{message}</p>}
-      <ErrorBox error={error} />
     </div>
   );
 }
