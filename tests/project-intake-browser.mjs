@@ -86,7 +86,7 @@ try {
     await p
       .locator(".sidebar")
       .evaluate((e) => getComputedStyle(e).backgroundColor),
-    "rgb(20, 65, 47)",
+    "rgb(1, 58, 99)",
   );
   await p
     .locator(".sidebar nav")
