@@ -23,7 +23,8 @@
     "test:usability": "node tests/usability-browser.mjs",
     "test:scope": "node tests/scope-browser.mjs",
     "test:projects": "node tests/project-intake-browser.mjs",
-    "test:roles": "node tests/single-role-browser.mjs"
+    "test:roles": "node tests/single-role-browser.mjs",
+    "test:line-bot": "node tests/line-bot-chat-browser.mjs"
   },
   "dependencies": {
     "@fontsource/noto-sans-thai": "^5.3.0",

@@ -20,6 +20,7 @@ import ReadingStatus from "./reading-status";
 import ReportDrafts from "./report-drafts";
 import Reports from "./reports";
 import Projects from "./projects";
+import LineBotChat from "./line-bot-chat";
 import ScheduleCalendar from "./schedule-calendar";
 import React, {
   useState,
@@ -59,7 +60,7 @@ import {
   RefreshCw,
   KeyRound,
   FileUp,
-  Inbox,
+  MessageCircle,
   ChevronDown,
   CheckCircle2,
   CalendarDays,
@@ -480,7 +481,7 @@ function App() {
   const menu = [
     ...(canWrite
       ? [
-          ["inbox", "รายงานจาก LINE", Inbox],
+          ["inbox", "LINE Bot Chat", MessageCircle],
           ["import", "เขียนรายงาน", FileText],
         ]
       : []),
@@ -665,7 +666,7 @@ function App() {
               {current === "drafts"
                 ? "รายงานสรุป"
                 : current === "inbox"
-                  ? "เพิ่มข้อมูล / รับจาก LINE"
+                  ? "LINE Bot Chat"
                   : current === "news"
                     ? "ฟีดข่าวภายใน / จัดการข่าว"
                     : current === "audit"
@@ -2559,7 +2560,7 @@ function IntakeTabs({ active }) {
         className={active === "line" ? "active" : ""}
         onClick={() => navigate("inbox")}
       >
-        รับจาก LINE
+        LINE Bot Chat
       </button>
     </div>
   );
@@ -2586,6 +2587,25 @@ function NewsTabs({ active }) {
   );
 }
 function LineInbox() {
+  const [receivedOpen, setReceivedOpen] = useState(false);
+  return (
+    <>
+      <Header
+        title="ส่งรายงานทาง LINE"
+        description="แชตโต้ตอบตามต้นแบบ ส่งข้อความหรือรูป ตอบคำถาม และตรวจยืนยันข้อมูล"
+      />
+      <LineBotChat />
+      <details
+        className="panel line-bot-received"
+        onToggle={(e) => setReceivedOpen(e.currentTarget.open)}
+      >
+        <summary>ข้อความ LINE ที่รับเข้าระบบ</summary>
+        {receivedOpen && <ReceivedLineInbox />}
+      </details>
+    </>
+  );
+}
+function ReceivedLineInbox() {
   const { meta, navigate, notify } = useApp();
   const [page, setPage] = useState(1),
     [selected, setSelected] = useState([]),
@@ -2594,7 +2614,7 @@ function LineInbox() {
   return (
     <>
       <Header
-        title="รายงานจาก LINE"
+        title="ข้อความที่รับเข้าระบบ"
         description="เลือกข้อความและรูปภาพของกิจกรรมเดียวกัน เพื่อจัดเป็นหนึ่งรายการงาน"
         action={
           <Button
@@ -2613,7 +2633,7 @@ function LineInbox() {
           </Button>
         }
       />
-      <IntakeTabs active="line" />
+
       {!meta.line.receiveConfigured && (
         <Notice>
           ยังไม่ได้เชื่อมต่อกลุ่มรับรายงาน ให้ผู้ดูแลตั้งค่าก่อนรับข้อมูลจาก

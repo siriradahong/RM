@@ -74,7 +74,7 @@ try {
   assert.equal(
     await p
       .locator(".sidebar nav")
-      .getByRole("button", { name: "รายงานจาก LINE", exact: true })
+      .getByRole("button", { name: "LINE Bot Chat", exact: true })
       .count(),
     1,
   );
@@ -172,9 +172,16 @@ try {
     "ตัวอย่างรายงานข้อความเดียวพร้อมแนบเอกสาร",
   );
   assert.equal(await p.getByLabel("ข้อความรายงาน").isEnabled(), true);
-  await p.getByRole("button", { name: "รับจาก LINE", exact: true }).click();
   await p
-    .getByRole("heading", { name: "รายงานจาก LINE", exact: true })
+    .getByRole("navigation", { name: "ช่องทางเพิ่มข้อมูล" })
+    .getByRole("button", { name: "LINE Bot Chat", exact: true })
+    .click();
+  await p
+    .getByRole("heading", { name: "ส่งรายงานทาง LINE", exact: true })
+    .waitFor();
+  await p.locator("details.line-bot-received > summary").click();
+  await p
+    .getByText("ยังไม่ได้เชื่อมต่อกลุ่มรับรายงาน", { exact: false })
     .waitFor();
   assert.ok(
     await p
